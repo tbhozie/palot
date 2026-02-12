@@ -1,0 +1,12 @@
+{
+	"mode": "pre",
+	"tag": "alpha",
+	"initialVersions": {
+		"@palot/desktop": "0.1.0",
+		"@palot/server": "0.1.0",
+		"@palot/configconv": "0.1.0",
+		"configconv": "0.1.0",
+		"@palot/ui": "0.1.0"
+	},
+	"changesets": []
+}
