@@ -24,6 +24,7 @@ import {
 	PlusIcon,
 	Redo2Icon,
 	RefreshCwIcon,
+	ScanEyeIcon,
 	SparklesIcon,
 	SunIcon,
 	SunMoonIcon,
@@ -32,6 +33,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { isMockModeAtom, toggleMockModeAtom } from "../atoms/mock-mode"
 import { opaqueWindowsAtom } from "../atoms/preferences"
+import { isReactScanAtom, toggleReactScanAtom } from "../atoms/react-scan"
 import { useSessionRevert } from "../hooks/use-commands"
 import {
 	useAvailableThemes,
@@ -79,6 +81,8 @@ export function CommandPalette({ open, onOpenChange, agents }: CommandPalettePro
 	const [opaqueWindows, setOpaqueWindows] = useAtom(opaqueWindowsAtom)
 	const isMockMode = useAtomValue(isMockModeAtom)
 	const toggleMockMode = useSetAtom(toggleMockModeAtom)
+	const isReactScan = useAtomValue(isReactScanAtom)
+	const toggleReactScan = useSetAtom(toggleReactScanAtom)
 	const [reloading, setReloading] = useState(false)
 
 	const isElectron = typeof window !== "undefined" && "palot" in window
@@ -262,6 +266,19 @@ export function CommandPalette({ open, onOpenChange, agents }: CommandPalettePro
 						<span>{isMockMode ? "Disable Demo Mode" : "Enable Demo Mode"}</span>
 						{isMockMode && <CheckIcon className="ml-auto h-4 w-4" />}
 					</CommandItem>
+					{import.meta.env.DEV && (
+						<CommandItem
+							keywords={["react", "scan", "render", "rerender", "performance", "debug"]}
+							onSelect={() => {
+								toggleReactScan()
+								onOpenChange(false)
+							}}
+						>
+							<ScanEyeIcon />
+							<span>{isReactScan ? "Disable React Scan" : "Enable React Scan"}</span>
+							{isReactScan && <CheckIcon className="ml-auto h-4 w-4" />}
+						</CommandItem>
+					)}
 				</CommandGroup>
 
 				{activeSessions.length > 0 && (
