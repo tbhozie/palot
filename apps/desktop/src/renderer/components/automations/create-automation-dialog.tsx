@@ -1,0 +1,339 @@
+/**
+ * Create/edit automation dialog -- modal overlay for creating or editing an automation.
+ *
+ * In edit mode, shows metadata header (started date, run count, status),
+ * pre-fills fields from the automation, and shows Delete/Test/Pause actions.
+ */
+
+import { Badge } from "@palot/ui/components/badge"
+import { Button } from "@palot/ui/components/button"
+import {
+	Dialog,
+	DialogContent,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@palot/ui/components/dialog"
+import { Input } from "@palot/ui/components/input"
+import { Label } from "@palot/ui/components/label"
+import { Textarea } from "@palot/ui/components/textarea"
+import { PauseIcon, PlayIcon, Trash2Icon, TriangleIcon } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import type { Automation } from "../../../preload/api"
+import {
+	createAutomation,
+	deleteAutomation,
+	runAutomationNow,
+	updateAutomation,
+} from "../../services/backend"
+import { SchedulePicker } from "./schedule-picker"
+
+interface CreateAutomationDialogProps {
+	open: boolean
+	onOpenChange: (open: boolean) => void
+	/** When set, the dialog is in "edit" mode and pre-fills from this automation. */
+	editAutomation?: Automation | null
+}
+
+const DEFAULT_RRULE = "FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
+
+// ============================================================
+// Helpers
+// ============================================================
+
+function formatDate(ts: number): string {
+	return new Date(ts).toLocaleDateString("en-US", {
+		month: "short",
+		day: "numeric",
+		year: "numeric",
+	})
+}
+
+function ProjectChip({ path, onRemove }: { path: string; onRemove: () => void }) {
+	const name = path.split("/").pop() ?? path
+	return (
+		<span className="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-0.5 text-xs">
+			{name}
+			<button
+				type="button"
+				onClick={onRemove}
+				className="ml-0.5 text-muted-foreground hover:text-foreground"
+				aria-label={`Remove ${name}`}
+			>
+				&times;
+			</button>
+		</span>
+	)
+}
+
+// ============================================================
+// Main component
+// ============================================================
+
+export function CreateAutomationDialog({
+	open,
+	onOpenChange,
+	editAutomation,
+}: CreateAutomationDialogProps) {
+	const isEditing = !!editAutomation
+
+	const [name, setName] = useState("")
+	const [prompt, setPrompt] = useState("")
+	const [workspaces, setWorkspaces] = useState<string[]>([])
+	const [rrule, setRrule] = useState(DEFAULT_RRULE)
+	const [isSubmitting, setIsSubmitting] = useState(false)
+	const [isTesting, setIsTesting] = useState(false)
+
+	// Pre-fill form when editing
+	useEffect(() => {
+		if (open && editAutomation) {
+			setName(editAutomation.name)
+			setPrompt(editAutomation.prompt)
+			setWorkspaces([...editAutomation.workspaces])
+			setRrule(editAutomation.schedule.rrule)
+		} else if (open && !editAutomation) {
+			setName("")
+			setPrompt("")
+			setWorkspaces([])
+			setRrule(DEFAULT_RRULE)
+		}
+	}, [open, editAutomation])
+
+	const canSave = name.trim().length > 0 && prompt.trim().length > 0
+
+	const handleSubmit = useCallback(async () => {
+		if (!canSave || isSubmitting) return
+		setIsSubmitting(true)
+		try {
+			if (isEditing && editAutomation) {
+				await updateAutomation({
+					id: editAutomation.id,
+					name: name.trim(),
+					prompt: prompt.trim(),
+					schedule: {
+						rrule,
+						timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+					},
+					workspaces,
+				})
+			} else {
+				await createAutomation({
+					name: name.trim(),
+					prompt: prompt.trim(),
+					schedule: {
+						rrule,
+						timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+					},
+					workspaces,
+					execution: { effort: "medium" },
+				})
+			}
+			onOpenChange(false)
+		} catch {
+			// TODO: show error toast
+		} finally {
+			setIsSubmitting(false)
+		}
+	}, [
+		canSave,
+		isSubmitting,
+		isEditing,
+		editAutomation,
+		name,
+		prompt,
+		rrule,
+		workspaces,
+		onOpenChange,
+	])
+
+	const handleCancel = useCallback(() => {
+		onOpenChange(false)
+	}, [onOpenChange])
+
+	const handleAddProject = useCallback(async () => {
+		if (typeof window !== "undefined" && "palot" in window) {
+			const dir = await window.palot.pickDirectory()
+			if (dir && !workspaces.includes(dir)) {
+				setWorkspaces((prev) => [...prev, dir])
+			}
+		}
+	}, [workspaces])
+
+	const handleRemoveProject = useCallback((path: string) => {
+		setWorkspaces((prev) => prev.filter((w) => w !== path))
+	}, [])
+
+	const handleDelete = useCallback(async () => {
+		if (!editAutomation) return
+		try {
+			await deleteAutomation(editAutomation.id)
+			onOpenChange(false)
+		} catch {
+			// TODO: show error toast
+		}
+	}, [editAutomation, onOpenChange])
+
+	const handleTest = useCallback(async () => {
+		if (!editAutomation || isTesting) return
+		setIsTesting(true)
+		try {
+			await runAutomationNow(editAutomation.id)
+			onOpenChange(false)
+		} catch {
+			// TODO: show error toast
+		} finally {
+			setIsTesting(false)
+		}
+	}, [editAutomation, isTesting, onOpenChange])
+
+	const handleTogglePause = useCallback(async () => {
+		if (!editAutomation) return
+		try {
+			await updateAutomation({
+				id: editAutomation.id,
+				status: editAutomation.status === "paused" ? "active" : "paused",
+			})
+			onOpenChange(false)
+		} catch {
+			// TODO: show error toast
+		}
+	}, [editAutomation, onOpenChange])
+
+	const isPaused = editAutomation?.status === "paused"
+
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+				<DialogHeader>
+					<div className="flex items-start justify-between gap-4">
+						<DialogTitle>{isEditing ? "Edit automation" : "Create automation"}</DialogTitle>
+						{isEditing && editAutomation && (
+							<div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+								<span>Started {formatDate(editAutomation.createdAt)}</span>
+								<span>{editAutomation.runCount} runs</span>
+								<Badge
+									variant={isPaused ? "secondary" : "default"}
+									className="gap-1 px-1.5 py-0 text-[10px]"
+								>
+									<span
+										className={`inline-block size-1.5 rounded-full ${isPaused ? "bg-yellow-500" : "bg-green-500"}`}
+									/>
+									{isPaused ? "Paused" : "Active"}
+								</Badge>
+							</div>
+						)}
+					</div>
+				</DialogHeader>
+
+				<div className="space-y-5">
+					{/* Name */}
+					<div className="space-y-2">
+						<Label htmlFor="automation-name">Name</Label>
+						<Input
+							id="automation-name"
+							value={name}
+							onChange={(e) => setName(e.target.value)}
+							placeholder="Check for sentry issues"
+							autoFocus
+						/>
+					</div>
+
+					{/* Projects */}
+					<div className="space-y-2">
+						<Label>Projects</Label>
+						<p className="text-xs text-muted-foreground">
+							If you want an automation to run on a specific branch, you can specify it in your
+							prompt.
+						</p>
+						<div className="flex flex-wrap items-center gap-1.5 rounded-md border border-input bg-background px-3 py-2">
+							{workspaces.map((w) => (
+								<ProjectChip key={w} path={w} onRemove={() => handleRemoveProject(w)} />
+							))}
+							<button
+								type="button"
+								onClick={handleAddProject}
+								className="text-xs text-muted-foreground hover:text-foreground"
+							>
+								{workspaces.length === 0 ? "Choose a folder" : "+ Add"}
+							</button>
+						</div>
+						{isEditing && (
+							<p className="text-xs text-muted-foreground">
+								Automations run in the background on dedicated worktrees. Automations in
+								non-version-controlled projects run directly in the project directory.
+							</p>
+						)}
+					</div>
+
+					{/* Prompt */}
+					<div className="space-y-2">
+						<Label htmlFor="automation-prompt">Prompt</Label>
+						<Textarea
+							id="automation-prompt"
+							value={prompt}
+							onChange={(e) => setPrompt(e.target.value)}
+							placeholder="look for crashes in $Sentry"
+							className="min-h-[100px]"
+						/>
+					</div>
+
+					{/* Schedule */}
+					<SchedulePicker value={rrule} onChange={setRrule} />
+				</div>
+
+				<DialogFooter className="flex-row justify-between sm:justify-between">
+					{/* Left side: destructive / action buttons (only in edit mode) */}
+					<div className="flex items-center gap-2">
+						{isEditing && (
+							<>
+								<Button
+									variant="ghost"
+									size="sm"
+									className="gap-1.5 text-destructive hover:text-destructive"
+									onClick={handleDelete}
+								>
+									<Trash2Icon className="size-3.5" />
+									Delete
+								</Button>
+								<Button
+									variant="ghost"
+									size="sm"
+									className="gap-1.5"
+									onClick={handleTest}
+									disabled={isTesting}
+								>
+									<TriangleIcon className="size-3 rotate-90 fill-current" />
+									{isTesting ? "Running..." : "Test"}
+								</Button>
+								<Button variant="ghost" size="sm" className="gap-1.5" onClick={handleTogglePause}>
+									{isPaused ? (
+										<PlayIcon className="size-3.5" />
+									) : (
+										<PauseIcon className="size-3.5" />
+									)}
+									{isPaused ? "Resume" : "Pause"}
+								</Button>
+							</>
+						)}
+					</div>
+
+					{/* Right side: cancel / save */}
+					<div className="flex items-center gap-2">
+						<Button variant="ghost" onClick={handleCancel}>
+							Cancel
+						</Button>
+						<Button onClick={handleSubmit} disabled={!canSave || isSubmitting}>
+							{isSubmitting
+								? isEditing
+									? "Saving..."
+									: "Creating..."
+								: isEditing
+									? "Save"
+									: "Create"}
+						</Button>
+					</div>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	)
+}

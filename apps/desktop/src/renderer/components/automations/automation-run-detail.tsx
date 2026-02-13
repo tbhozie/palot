@@ -1,0 +1,102 @@
+/**
+ * Detail view for a selected automation run.
+ *
+ * Renders the exact same session UI as normal chat sessions when the run has
+ * a real sessionId. For stub runs (no session yet), shows a simple summary.
+ * Marks runs as read on mount when they are unread.
+ */
+
+import { MessageResponse } from "@palot/ui/components/ai-elements/message"
+import { useParams } from "@tanstack/react-router"
+import { useSetAtom } from "jotai"
+import { InboxIcon } from "lucide-react"
+import { useEffect, useMemo } from "react"
+import type { Automation, AutomationRun } from "../../../preload/api"
+import { markRunReadLocalAtom } from "../../atoms/automations"
+import { useAutomationRuns, useAutomations } from "../../hooks/use-automations"
+import { formatDuration } from "../../lib/time-format"
+import { markAutomationRunRead } from "../../services/backend"
+import { SessionView } from "../session-view"
+
+export function AutomationRunDetail() {
+	const params = useParams({ strict: false }) as { runId?: string }
+	const runId = params.runId ?? null
+
+	const runs = useAutomationRuns()
+	const automations = useAutomations()
+	const markReadLocal = useSetAtom(markRunReadLocalAtom)
+
+	const run: AutomationRun | null = useMemo(
+		() => runs.find((r) => r.id === runId) ?? null,
+		[runs, runId],
+	)
+
+	const automation: Automation | null = useMemo(
+		() => (run ? (automations.find((a) => a.id === run.automationId) ?? null) : null),
+		[automations, run],
+	)
+
+	// Mark as read on mount
+	useEffect(() => {
+		if (run && run.readAt === null && run.status === "pending_review") {
+			markReadLocal(run.id)
+			markAutomationRunRead(run.id).catch(() => {
+				// Silently ignore -- the next poll will correct state
+			})
+		}
+	}, [run, markReadLocal])
+
+	if (!run) {
+		return (
+			<div className="flex flex-1 items-center justify-center p-8">
+				<p className="text-sm text-muted-foreground">Run not found</p>
+			</div>
+		)
+	}
+
+	// Runs with a real session get the exact same UI as normal chat sessions
+	if (run.sessionId) {
+		return <SessionView sessionId={run.sessionId} />
+	}
+
+	// Stub runs (no session yet) get a simple summary view
+	return <RunStubView run={run} automationName={automation?.name ?? "Automation"} />
+}
+
+// ============================================================
+// Stub view for runs without a real session
+// ============================================================
+
+function RunStubView({ run, automationName }: { run: AutomationRun; automationName: string }) {
+	const duration = run.startedAt && run.completedAt ? run.completedAt - run.startedAt : null
+
+	return (
+		<div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+			<div className="flex size-12 items-center justify-center rounded-full bg-muted">
+				<InboxIcon className="size-6 text-muted-foreground" aria-hidden="true" />
+			</div>
+
+			<div className="max-w-md space-y-2">
+				<h3 className="text-sm font-semibold">{run.resultTitle ?? automationName}</h3>
+
+				{duration !== null && duration > 0 && (
+					<p className="text-xs text-muted-foreground">Ran for {formatDuration(duration)}</p>
+				)}
+
+				{run.resultSummary ? (
+					<div className="prose prose-sm dark:prose-invert mx-auto max-w-none text-left">
+						<MessageResponse>{run.resultSummary}</MessageResponse>
+					</div>
+				) : run.status === "queued" ? (
+					<p className="text-sm text-muted-foreground">This run is queued and waiting to start.</p>
+				) : run.status === "running" ? (
+					<p className="text-sm text-muted-foreground">This run is in progress...</p>
+				) : (
+					<p className="text-sm text-muted-foreground">No output recorded for this run.</p>
+				)}
+
+				{run.errorMessage && <p className="text-sm text-destructive">{run.errorMessage}</p>}
+			</div>
+		</div>
+	)
+}

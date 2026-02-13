@@ -10,6 +10,9 @@
  */
 
 import type {
+	Automation,
+	AutomationRun,
+	CreateAutomationInput,
 	DiscoveryResult,
 	GitBranchInfo,
 	GitCheckoutResult,
@@ -18,6 +21,7 @@ import type {
 	MessagesResult,
 	ModelState,
 	OpenInTargetsResult,
+	UpdateAutomationInput,
 } from "../../preload/api"
 import { createLogger } from "../lib/logger"
 
@@ -249,4 +253,88 @@ export async function setOpenInPreferred(targetId: string): Promise<{ success: b
 		return window.palot.openIn.setPreferred(targetId)
 	}
 	throw new Error("Open-in targets are only available in Electron mode")
+}
+
+// ============================================================
+// Automations — Electron-only
+// ============================================================
+
+export async function fetchAutomations(): Promise<Automation[]> {
+	if (isElectron) {
+		return window.palot.automation.list()
+	}
+	throw new Error("Automations are only available in Electron mode")
+}
+
+export async function fetchAutomation(id: string): Promise<Automation | null> {
+	if (isElectron) {
+		return window.palot.automation.get(id)
+	}
+	throw new Error("Automations are only available in Electron mode")
+}
+
+export async function createAutomation(input: CreateAutomationInput): Promise<Automation> {
+	if (isElectron) {
+		return window.palot.automation.create(input)
+	}
+	throw new Error("Automations are only available in Electron mode")
+}
+
+export async function updateAutomation(input: UpdateAutomationInput): Promise<Automation | null> {
+	if (isElectron) {
+		return window.palot.automation.update(input)
+	}
+	throw new Error("Automations are only available in Electron mode")
+}
+
+export async function deleteAutomation(id: string): Promise<boolean> {
+	if (isElectron) {
+		return window.palot.automation.delete(id)
+	}
+	throw new Error("Automations are only available in Electron mode")
+}
+
+export async function runAutomationNow(id: string): Promise<boolean> {
+	if (isElectron) {
+		return window.palot.automation.runNow(id)
+	}
+	throw new Error("Automations are only available in Electron mode")
+}
+
+export async function fetchAutomationRuns(automationId?: string): Promise<AutomationRun[]> {
+	if (isElectron) {
+		return window.palot.automation.listRuns(automationId)
+	}
+	throw new Error("Automations are only available in Electron mode")
+}
+
+export async function archiveAutomationRun(runId: string): Promise<boolean> {
+	if (isElectron) {
+		return window.palot.automation.archiveRun(runId)
+	}
+	throw new Error("Automations are only available in Electron mode")
+}
+
+export async function acceptAutomationRun(runId: string): Promise<boolean> {
+	if (isElectron) {
+		return window.palot.automation.acceptRun(runId)
+	}
+	throw new Error("Automations are only available in Electron mode")
+}
+
+export async function markAutomationRunRead(runId: string): Promise<boolean> {
+	if (isElectron) {
+		return window.palot.automation.markRunRead(runId)
+	}
+	throw new Error("Automations are only available in Electron mode")
+}
+
+export async function previewAutomationSchedule(
+	rrule: string,
+	timezone: string,
+): Promise<string[]> {
+	if (isElectron) {
+		return window.palot.automation.previewSchedule(rrule, timezone)
+	}
+	throw new Error("Automations are only available in Electron mode")
 }
