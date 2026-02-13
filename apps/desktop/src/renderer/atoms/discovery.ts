@@ -1,47 +1,24 @@
 import { atom } from "jotai"
+import type { OpenCodeProject } from "../lib/types"
 
 // ============================================================
 // Types
 // ============================================================
 
-/** A project discovered from OpenCode's local storage */
-export interface DiscoveredProject {
-	id: string
-	worktree: string
-	vcs: string
-	time: {
-		created: number
-		updated?: number
-	}
-}
-
-/** A session discovered from OpenCode's local storage */
-export interface DiscoveredSession {
-	id: string
-	slug?: string
-	projectID: string
-	directory: string
-	parentID?: string
-	title: string
-	version?: string
-	time: {
-		created: number
-		updated?: number
-	}
-	summary?: {
-		additions: number
-		deletions: number
-		files: number
-	}
-}
-
-/** State for discovered (offline) data from local storage */
+/**
+ * State for discovered project/session data.
+ *
+ * With API-first discovery, projects come from `client.project.list()` and
+ * sessions are loaded per-project via `client.session.list()`. The discovery
+ * atom only tracks projects now; sessions are loaded directly into the
+ * session atom family by the connection manager.
+ */
 export interface DiscoveryState {
 	loaded: boolean
 	loading: boolean
 	error: string | null
-	projects: DiscoveredProject[]
-	sessions: Record<string, DiscoveredSession[]>
+	/** Projects discovered from the OpenCode API (Project type from SDK) */
+	projects: OpenCodeProject[]
 }
 
 // ============================================================
@@ -53,11 +30,9 @@ export const discoveryAtom = atom<DiscoveryState>({
 	loading: false,
 	error: null,
 	projects: [],
-	sessions: {},
 })
 
 // Convenience selectors
 export const discoveryLoadedAtom = atom((get) => get(discoveryAtom).loaded)
 export const discoveryLoadingAtom = atom((get) => get(discoveryAtom).loading)
 export const discoveryProjectsAtom = atom((get) => get(discoveryAtom).projects)
-export const discoverySessionsAtom = atom((get) => get(discoveryAtom).sessions)

@@ -11,6 +11,7 @@ import {
 	connectToServer,
 	disposeAllInstances,
 	getSessionStatuses,
+	listProjects,
 	listSessions,
 	subscribeToGlobalEvents,
 } from "./opencode"
@@ -99,6 +100,26 @@ export async function connectToOpenCode(url: string): Promise<void> {
 	startEventLoop(baseClient, abortController.signal, gen)
 
 	appStore.set(serverConnectedAtom, true)
+}
+
+/**
+ * List all projects known to the OpenCode server via the API.
+ * Uses the base client (no directory scope) since project.list() is global.
+ */
+export async function loadAllProjects() {
+	const client = getBaseClient()
+	if (!client) {
+		log.warn("Cannot load projects: not connected to server")
+		return []
+	}
+	try {
+		const projects = await listProjects(client)
+		log.info("Loaded projects from API", { count: projects.length })
+		return projects
+	} catch (err) {
+		log.error("Failed to load projects from API", err)
+		return []
+	}
 }
 
 /**

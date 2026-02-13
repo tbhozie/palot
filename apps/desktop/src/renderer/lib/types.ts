@@ -19,7 +19,6 @@ export type {
 	Message,
 	Part,
 	Permission,
-	Project as OpenCodeProject,
 	ReasoningPart,
 	Session,
 	SessionStatus,
@@ -31,8 +30,9 @@ export type {
 	UserMessage,
 } from "@opencode-ai/sdk"
 
-// Re-export question types from v2 SDK (not available in root SDK)
+// Re-export types from v2 SDK (newer schema with full Project type)
 export type {
+	Project as OpenCodeProject,
 	QuestionAnswer,
 	QuestionInfo,
 	QuestionOption,

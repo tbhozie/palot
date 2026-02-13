@@ -12,8 +12,7 @@ import { partsFamily } from "../atoms/parts"
 import { appStore } from "../atoms/store"
 import { streamingVersionAtom } from "../atoms/streaming"
 import type { Message, Part } from "../lib/types"
-import { fetchSessionMessages } from "../services/backend"
-import { getProjectClient } from "../services/connection-manager"
+import { getBaseClient, getProjectClient } from "../services/connection-manager"
 
 // Re-export types for consumers
 export type { ChatMessageEntry, ChatTurn }
@@ -72,21 +71,19 @@ export function useSessionChat(
 			setLoading(true)
 			setError(null)
 			try {
-				let raw: Array<{ info: Message; parts: Part[] }>
-
-				const client = directory ? getProjectClient(directory) : null
-				if (client) {
-					const result = await client.session.messages({
-						sessionID: sid,
-						limit: INITIAL_LIMIT,
-					})
-					raw = (result.data ?? []) as Array<{ info: Message; parts: Part[] }>
-					hasEarlierRef.current = raw.length >= INITIAL_LIMIT
-				} else {
-					const result = await fetchSessionMessages(sid)
-					raw = (result.messages ?? []) as unknown as Array<{ info: Message; parts: Part[] }>
-					hasEarlierRef.current = false
+				// Use a directory-scoped client when available, otherwise fall back to the base client
+				const client = (directory ? getProjectClient(directory) : null) ?? getBaseClient()
+				if (!client) {
+					setError("Not connected to OpenCode server")
+					return
 				}
+
+				const result = await client.session.messages({
+					sessionID: sid,
+					limit: INITIAL_LIMIT,
+				})
+				const raw = (result.data ?? []) as Array<{ info: Message; parts: Part[] }>
+				hasEarlierRef.current = raw.length >= INITIAL_LIMIT
 
 				// Hydrate the Jotai store
 				const messages = raw.map((m) => m.info)

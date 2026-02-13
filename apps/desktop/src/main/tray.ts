@@ -12,13 +12,9 @@
  */
 import fs from "node:fs"
 import path from "node:path"
+import type { Project, Session } from "@opencode-ai/sdk/v2/client"
+import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { app, type BrowserWindow, Menu, nativeImage, Tray } from "electron"
-import {
-	type DiscoveredProject,
-	type DiscoveredSession,
-	type DiscoveryResult,
-	discover,
-} from "./discovery"
 import { createLogger } from "./logger"
 import {
 	getPendingCount,
@@ -50,13 +46,22 @@ const STATUS_ICON: Record<string, string> = {
 }
 
 // ============================================================
+// Types
+// ============================================================
+
+interface DiscoveryCache {
+	projects: Project[]
+	sessions: Session[]
+}
+
+// ============================================================
 // State
 // ============================================================
 
 let tray: Tray | null = null
 let getWindow: (() => BrowserWindow | undefined) | null = null
 let unsubscribeWatcher: (() => void) | null = null
-let discoveryCache: DiscoveryResult | null = null
+let discoveryCache: DiscoveryCache | null = null
 let discoveryTimer: ReturnType<typeof setInterval> | null = null
 
 // ============================================================
@@ -161,7 +166,7 @@ function rebuildMenu(): void {
 		template.push({ type: "separator" })
 	}
 
-	// --- Recent sessions (from discovery, not currently live) ---
+	// --- Recent sessions (from API discovery, not currently live) ---
 	const recentSection = buildRecentSection(liveSessions)
 	if (recentSection.length > 0) {
 		template.push(...recentSection)
@@ -325,7 +330,7 @@ function agentMenuItem(agent: {
 }
 
 // ============================================================
-// Recent Section — offline sessions from discovery
+// Recent Section — offline sessions from API discovery
 // ============================================================
 
 function buildRecentSection(
@@ -333,22 +338,25 @@ function buildRecentSection(
 ): Electron.MenuItemConstructorOptions[] {
 	if (!discoveryCache) return []
 
-	const { projects, sessions: sessionsByProject } = discoveryCache
+	const { projects, sessions } = discoveryCache
 	const liveIds = new Set(liveSessions.keys())
+
+	// Build a project lookup by ID for directory resolution
+	const projectById = new Map<string, Project>()
+	for (const project of projects) {
+		projectById.set(project.id, project)
+	}
 
 	// Collect all non-live, non-sub-agent sessions with their project info
 	const recentSessions: Array<{
-		session: DiscoveredSession
-		project: DiscoveredProject
+		session: Session
+		project: Project | undefined
 	}> = []
 
-	for (const project of projects) {
-		const projectSessions = sessionsByProject[project.id] ?? []
-		for (const session of projectSessions) {
-			if (liveIds.has(session.id)) continue
-			if (session.parentID) continue
-			recentSessions.push({ session, project })
-		}
+	for (const session of sessions) {
+		if (liveIds.has(session.id)) continue
+		if (session.parentID) continue
+		recentSessions.push({ session, project: projectById.get(session.projectID) })
 	}
 
 	if (recentSessions.length === 0) return []
@@ -366,7 +374,7 @@ function buildRecentSection(
 	// Show top 5 recent sessions
 	const topRecent = recentSessions.slice(0, 5)
 	for (const { session, project } of topRecent) {
-		const projectName = projectNameFromDir(session.directory || project.worktree)
+		const projectName = projectNameFromDir(session.directory || project?.worktree || "")
 		const timeAgo = formatRelativeTime(session.time.updated ?? session.time.created)
 		const maxLen = 30
 		const title =
@@ -435,13 +443,26 @@ function updateTrayTitle(
 }
 
 // ============================================================
-// Discovery Data
+// Discovery Data — fetched from OpenCode API via SDK
 // ============================================================
 
 async function refreshDiscovery(): Promise<void> {
+	const serverUrl = getServerUrl()
+	if (!serverUrl) return
+
 	try {
-		discoveryCache = await discover()
-		// Rebuild menu with fresh discovery data (only if not already rebuilding from SSE)
+		const client = createOpencodeClient({ baseUrl: serverUrl })
+		const [projectsResult, sessionsResult] = await Promise.all([
+			client.project.list(),
+			client.session.list({ roots: true }),
+		])
+
+		discoveryCache = {
+			projects: (projectsResult.data ?? []) as Project[],
+			sessions: (sessionsResult.data ?? []) as Session[],
+		}
+
+		// Rebuild menu with fresh discovery data
 		rebuildMenu()
 	} catch (err) {
 		log.warn("Failed to refresh discovery data for tray", err)

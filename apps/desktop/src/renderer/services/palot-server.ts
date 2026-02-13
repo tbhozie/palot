@@ -17,17 +17,6 @@ const BASE_URL = "http://localhost:3100"
 export const client = createClient(BASE_URL)
 
 /**
- * Fetches discovered OpenCode projects and sessions from local storage.
- */
-export async function fetchDiscovery() {
-	const res = await client.api.discover.$get()
-	if (!res.ok) {
-		throw new Error(`Discovery failed: ${res.status} ${res.statusText}`)
-	}
-	return res.json()
-}
-
-/**
  * Fetches all running OpenCode servers (detected + managed).
  */
 export async function fetchServers() {
@@ -47,20 +36,6 @@ export async function fetchOpenCodeUrl(): Promise<{ url: string }> {
 	if (!res.ok) {
 		const data = await res.json()
 		throw new Error("error" in data ? data.error : "Failed to get OpenCode server URL")
-	}
-	return res.json()
-}
-
-/**
- * Fetches messages for a session from local disk storage (via the Palot server).
- * Used for offline/discovered sessions that don't have a live OpenCode server.
- */
-export async function fetchSessionMessages(sessionId: string) {
-	const res = await client.api.sessions[":id"].messages.$get({
-		param: { id: sessionId },
-	})
-	if (!res.ok) {
-		throw new Error(`Messages fetch failed: ${res.status} ${res.statusText}`)
 	}
 	return res.json()
 }

@@ -40,12 +40,6 @@ contextBridge.exposeInMainWorld("palot", {
 	/** Stops the managed OpenCode server. */
 	stopOpenCode: () => ipcRenderer.invoke("opencode:stop"),
 
-	/** Discovers projects and sessions from local disk storage. */
-	discover: () => ipcRenderer.invoke("discover"),
-
-	/** Reads all messages and parts for a session from disk. */
-	getSessionMessages: (sessionId: string) => ipcRenderer.invoke("session:messages", sessionId),
-
 	/** Reads model state (recent models, favorites, variants). */
 	getModelState: () => ipcRenderer.invoke("model-state"),
 

@@ -11,57 +11,6 @@ export interface OpenCodeServerInfo {
 	managed: boolean
 }
 
-export interface DiscoveredProject {
-	id: string
-	worktree: string
-	vcs: string
-	time: { created: number; updated?: number }
-}
-
-export interface DiscoveredSession {
-	id: string
-	slug?: string
-	projectID: string
-	directory: string
-	parentID?: string
-	title: string
-	version?: string
-	time: { created: number; updated?: number }
-	summary?: { additions: number; deletions: number; files: number }
-}
-
-export interface DiscoveryResult {
-	projects: DiscoveredProject[]
-	sessions: Record<string, DiscoveredSession[]>
-}
-
-export interface MessageEntry {
-	info: {
-		id: string
-		sessionID: string
-		role: string
-		time: { created: number; completed?: number }
-		parentID?: string
-		modelID?: string
-		providerID?: string
-		[key: string]: unknown
-	}
-	parts: {
-		id: string
-		sessionID: string
-		messageID: string
-		type: string
-		text?: string
-		tool?: string
-		callID?: string
-		[key: string]: unknown
-	}[]
-}
-
-export interface MessagesResult {
-	messages: MessageEntry[]
-}
-
 export interface ModelRef {
 	providerID: string
 	modelID: string
@@ -392,8 +341,6 @@ export interface PalotAPI {
 	ensureOpenCode: () => Promise<OpenCodeServerInfo>
 	getServerUrl: () => Promise<string | null>
 	stopOpenCode: () => Promise<boolean>
-	discover: () => Promise<DiscoveryResult>
-	getSessionMessages: (sessionId: string) => Promise<MessagesResult>
 	getModelState: () => Promise<ModelState>
 	updateModelRecent: (model: ModelRef) => Promise<ModelState>
 

@@ -4,8 +4,12 @@ import { discoveryAtom } from "../atoms/discovery"
 import { isMockModeAtom } from "../atoms/mock-mode"
 import { appStore } from "../atoms/store"
 import { createLogger } from "../lib/logger"
-import { fetchDiscovery, fetchOpenCodeUrl } from "../services/backend"
-import { connectToOpenCode, loadProjectSessions } from "../services/connection-manager"
+import { fetchOpenCodeUrl } from "../services/backend"
+import {
+	connectToOpenCode,
+	loadAllProjects,
+	loadProjectSessions,
+} from "../services/connection-manager"
 
 const log = createLogger("discovery")
 
@@ -21,11 +25,16 @@ export function resetDiscoveryGuard(): void {
 }
 
 /**
+ * API-first discovery hook.
+ *
  * On mount:
- * 1. Fetches discovered projects/sessions from disk (via Palot server)
- * 2. Ensures the single OpenCode server is running (via Palot backend)
- * 3. Connects to the OpenCode server (SSE events for all projects)
- * 4. Loads live sessions for all discovered projects
+ * 1. Ensures the single OpenCode server is running (via Palot backend)
+ * 2. Connects to the OpenCode server (SSE events for all projects)
+ * 3. Lists all projects from the API via `client.project.list()`
+ * 4. Loads live sessions for each discovered project directory
+ *
+ * This replaces the previous disk-first approach that read from
+ * ~/.local/share/opencode/storage/ and then connected to the server.
  */
 export function useDiscovery() {
 	const discovery = useAtomValue(discoveryAtom)
@@ -47,37 +56,35 @@ export function useDiscovery() {
 
 		;(async () => {
 			try {
-				log.info("Starting discovery...")
-				const discoveryData = await fetchDiscovery()
-				log.info("Discovered projects", {
-					projects: discoveryData.projects.length,
-					sessionGroups: Object.keys(discoveryData.sessions).length,
-				})
+				// --- Step 1: Ensure the OpenCode server is running ---
+				log.info("Ensuring OpenCode server is running...")
+				const { url } = await fetchOpenCodeUrl()
+
+				// --- Step 2: Connect to the server (starts SSE event loop) ---
+				log.info("Connecting to OpenCode server", { url })
+				await connectToOpenCode(url)
+
+				// --- Step 3: Discover projects from the API ---
+				log.info("Loading projects from API...")
+				const projects = await loadAllProjects()
+				log.info("Discovered projects via API", { count: projects.length })
+
+				// Store projects in discovery atom
 				appStore.set(discoveryAtom, {
 					loaded: true,
 					loading: false,
 					error: null,
-					projects: discoveryData.projects,
-					sessions: discoveryData.sessions,
+					projects,
 				})
 
-				log.info("Ensuring OpenCode server is running...")
-				const { url } = await fetchOpenCodeUrl()
-
-				log.info("Connecting to OpenCode server", { url })
-				await connectToOpenCode(url)
-
+				// --- Step 4: Load live sessions for each project directory ---
 				const directories = new Set<string>()
-				for (const project of discoveryData.projects) {
-					if (project.id === "global") {
-						const sessions = discoveryData.sessions[project.id] ?? []
-						for (const s of sessions) {
-							if (s.directory) directories.add(s.directory)
-						}
-					} else {
+				for (const project of projects) {
+					if (project.worktree) {
 						directories.add(project.worktree)
 					}
 				}
+
 				const results = await Promise.allSettled(
 					[...directories].map((dir) => loadProjectSessions(dir)),
 				)
@@ -91,7 +98,8 @@ export function useDiscovery() {
 
 				log.info("Discovery complete", {
 					url,
-					projects: directories.size,
+					projects: projects.length,
+					directories: directories.size,
 				})
 			} catch (err) {
 				log.error("Discovery failed", err)

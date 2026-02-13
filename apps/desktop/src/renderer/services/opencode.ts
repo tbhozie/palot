@@ -1,7 +1,7 @@
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { createLogger } from "../lib/logger"
-import type { Event, QuestionAnswer, Session, SessionStatus } from "../lib/types"
+import type { Event, OpenCodeProject, QuestionAnswer, Session, SessionStatus } from "../lib/types"
 
 export type { OpencodeClient }
 
@@ -163,6 +163,14 @@ export function connectToServer(url: string, directory?: string): OpencodeClient
 		// (e.g. ERR_ALPN_NEGOTIATION_FAILED on localhost connections)
 		fetch: createRetryFetch(baseFetch),
 	})
+}
+
+/**
+ * Fetch all projects known to the server.
+ */
+export async function listProjects(client: OpencodeClient): Promise<OpenCodeProject[]> {
+	const result = await client.project.list()
+	return (result.data as OpenCodeProject[]) ?? []
 }
 
 /**

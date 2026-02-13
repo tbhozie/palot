@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { Activity } from "../lib/types"
-import { fetchSessionMessages } from "../services/backend"
-import { getProjectClient } from "../services/connection-manager"
+import { getBaseClient, getProjectClient } from "../services/connection-manager"
 
 /**
  * SDK returns messages as { info: Message, parts: Part[] }
@@ -153,20 +152,18 @@ export function useSessionMessages(directory: string | null, sessionId: string |
 		setError(null)
 
 		try {
-			let messages: MessageEntry[]
-
-			// Try the live OpenCode server first (if we have a connection)
-			const client = directory ? getProjectClient(directory) : null
-			if (client) {
-				const result = await client.session.messages({
-					sessionID: sessionId,
-				})
-				messages = (result.data as unknown as MessageEntry[]) ?? []
-			} else {
-				// Fallback: read from disk via the Palot backend server
-				const result = await fetchSessionMessages(sessionId)
-				messages = (result.messages as unknown as MessageEntry[]) ?? []
+			// Use a directory-scoped client when available, otherwise fall back to the base client
+			const client = (directory ? getProjectClient(directory) : null) ?? getBaseClient()
+			if (!client) {
+				setError("Not connected to OpenCode server")
+				setActivities([])
+				return
 			}
+
+			const result = await client.session.messages({
+				sessionID: sessionId,
+			})
+			const messages = (result.data as unknown as MessageEntry[]) ?? []
 
 			if (abort.signal.aborted) return
 

@@ -4,7 +4,7 @@
  * All timestamps are relative to `Date.now()` so the UI always
  * looks fresh regardless of when the screenshot is taken.
  */
-import type { DiscoveredProject, DiscoveredSession, DiscoveryState } from "../atoms/discovery"
+import type { DiscoveryState } from "../atoms/discovery"
 import type { SessionEntry } from "../atoms/sessions"
 import type {
 	AssistantMessage,
@@ -88,90 +88,38 @@ const DIRS = {
 // Discovery state
 // ============================================================
 
-const mockDiscoveredProjects: DiscoveredProject[] = [
+const mockDiscoveredProjects: DiscoveryState["projects"] = [
 	{
 		id: IDS.projectPalot,
 		worktree: DIRS.palot,
 		vcs: "git",
+		name: "palot",
 		time: { created: NOW - 30 * 24 * HOUR, updated: NOW - 2 * MINUTE },
+		sandboxes: [],
 	},
 	{
 		id: IDS.projectAcmeApi,
 		worktree: DIRS.acmeApi,
 		vcs: "git",
+		name: "acme-api",
 		time: { created: NOW - 14 * 24 * HOUR, updated: NOW - 15 * MINUTE },
+		sandboxes: [],
 	},
 	{
 		id: IDS.projectLanding,
 		worktree: DIRS.landing,
 		vcs: "git",
+		name: "landing-page",
 		time: { created: NOW - 7 * 24 * HOUR, updated: NOW - 1 * HOUR },
+		sandboxes: [],
 	},
 ]
-
-const mockDiscoveredSessions: Record<string, DiscoveredSession[]> = {
-	[IDS.projectPalot]: [
-		{
-			id: IDS.sessionDarkMode,
-			projectID: IDS.projectPalot,
-			directory: DIRS.palot,
-			title: "Add dark mode toggle to settings",
-			time: { created: NOW - 25 * MINUTE, updated: NOW - 2 * MINUTE },
-			summary: { additions: 147, deletions: 23, files: 8 },
-		},
-		{
-			id: IDS.sessionTests,
-			projectID: IDS.projectPalot,
-			directory: DIRS.palot,
-			title: "Add unit tests for auth middleware",
-			time: { created: NOW - 3 * HOUR, updated: NOW - 2 * HOUR },
-			summary: { additions: 312, deletions: 5, files: 4 },
-		},
-		{
-			id: IDS.sessionDocs,
-			projectID: IDS.projectPalot,
-			directory: DIRS.palot,
-			title: "Update API documentation for v2 endpoints",
-			time: { created: NOW - 5 * HOUR, updated: NOW - 4 * HOUR },
-			summary: { additions: 89, deletions: 34, files: 3 },
-		},
-	],
-	[IDS.projectAcmeApi]: [
-		{
-			id: IDS.sessionAuthFix,
-			projectID: IDS.projectAcmeApi,
-			directory: DIRS.acmeApi,
-			title: "Fix JWT token refresh race condition",
-			time: { created: NOW - 45 * MINUTE, updated: NOW - 12 * MINUTE },
-			summary: { additions: 56, deletions: 18, files: 3 },
-		},
-		{
-			id: IDS.sessionRefactor,
-			projectID: IDS.projectAcmeApi,
-			directory: DIRS.acmeApi,
-			title: "Refactor database connection pooling",
-			time: { created: NOW - 2 * HOUR, updated: NOW - 45 * MINUTE },
-			summary: { additions: 203, deletions: 156, files: 12 },
-		},
-	],
-	[IDS.projectLanding]: [
-		{
-			id: IDS.sessionLanding,
-			projectID: IDS.projectLanding,
-			directory: DIRS.landing,
-			title: "Build hero section with animated gradient",
-			time: { created: NOW - 1 * HOUR, updated: NOW - 35 * MINUTE },
-			summary: { additions: 178, deletions: 0, files: 5 },
-		},
-	],
-}
 
 export const MOCK_DISCOVERY: DiscoveryState = {
 	loaded: true,
 	loading: false,
 	error: null,
 	projects: mockDiscoveredProjects,
-	sessions: mockDiscoveredSessions,
 }
 
 // ============================================================

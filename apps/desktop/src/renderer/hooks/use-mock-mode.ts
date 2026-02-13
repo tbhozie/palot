@@ -117,7 +117,6 @@ function deactivateMockMode(): void {
 		loading: false,
 		error: null,
 		projects: [],
-		sessions: {},
 	})
 
 	// 4. Reset connection state

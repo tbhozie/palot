@@ -1,10 +1,8 @@
 import { Hono } from "hono"
 import { cors } from "hono/cors"
-import discovery from "./routes/discovery"
 import health from "./routes/health"
 import modelState from "./routes/model-state"
 import servers from "./routes/servers"
-import sessions from "./routes/sessions"
 import { ensureSingleServer } from "./services/server-manager"
 
 // ============================================================
@@ -23,9 +21,7 @@ app.use(
 
 // Routes — chained for Hono RPC type inference
 const routes = app
-	.route("/api/discover", discovery)
 	.route("/api/servers", servers)
-	.route("/api/sessions", sessions)
 	.route("/api/model-state", modelState)
 	.route("/health", health)
 

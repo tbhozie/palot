@@ -1,7 +1,8 @@
 import { createLogger } from "../../lib/logger"
 import { queryClient } from "../../lib/query-client"
-import type { Event, QuestionRequest } from "../../lib/types"
+import type { Event, OpenCodeProject, QuestionRequest } from "../../lib/types"
 import { serverConnectedAtom } from "../connection"
+import { discoveryAtom } from "../discovery"
 import { removeMessageAtom, upsertMessageAtom } from "../messages"
 import { removePartAtom, upsertPartAtom } from "../parts"
 import {
@@ -71,6 +72,21 @@ export function processEvent(event: Event): void {
 	}
 	if (eventType === "global.disposed") {
 		invalidateAllQueries()
+		return
+	}
+
+	// Handle project.updated events (only in v2 SDK Event type, not in root SDK)
+	if (eventType === "project.updated") {
+		const project = (event as unknown as { properties: OpenCodeProject }).properties
+		if (project.id && project.worktree) {
+			const current = appStore.get(discoveryAtom)
+			const existing = current.projects.findIndex((p) => p.id === project.id)
+			const nextProjects =
+				existing >= 0
+					? current.projects.map((p, i) => (i === existing ? project : p))
+					: [...current.projects, project]
+			set(discoveryAtom, { ...current, projects: nextProjects })
+		}
 		return
 	}
 

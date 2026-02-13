@@ -14,7 +14,7 @@ import {
 } from "./automation"
 import type { CreateAutomationInput, UpdateAutomationInput } from "./automation/types"
 import { installCli, isCliInstalled, uninstallCli } from "./cli-install"
-import { discover } from "./discovery"
+
 import {
 	addWorktree,
 	applyChangesToLocal,
@@ -35,7 +35,7 @@ import {
 } from "./git-service"
 import { getResolvedChromeTier } from "./liquid-glass"
 import { createLogger } from "./logger"
-import { readSessionMessages } from "./messages"
+
 import { readModelState, updateModelRecent } from "./model-state"
 import { dismissNotification, updateBadgeCount } from "./notifications"
 import type { MigrationProvider } from "./onboarding"
@@ -163,23 +163,6 @@ export function registerIpcHandlers(): void {
 	ipcMain.handle(
 		"opencode:stop",
 		withLogging("opencode:stop", () => stopServer()),
-	)
-
-	// --- Discovery (filesystem reads) ---
-
-	ipcMain.handle(
-		"discover",
-		withLogging("discover", async () => await discover()),
-	)
-
-	// --- Session messages (filesystem reads) ---
-
-	ipcMain.handle(
-		"session:messages",
-		withLogging(
-			"session:messages",
-			async (_, sessionId: string) => await readSessionMessages(sessionId),
-		),
 	)
 
 	// --- Model state ---

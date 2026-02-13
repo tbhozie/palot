@@ -13,7 +13,6 @@ import type {
 	Automation,
 	AutomationRun,
 	CreateAutomationInput,
-	DiscoveryResult,
 	GitApplyResult,
 	GitBranchInfo,
 	GitCheckoutResult,
@@ -23,7 +22,6 @@ import type {
 	GitStashResult,
 	GitStatusInfo,
 	ManagedWorktree,
-	MessagesResult,
 	ModelState,
 	OpenInTargetsResult,
 	UpdateAutomationInput,
@@ -48,24 +46,6 @@ export const isElectron = typeof window !== "undefined" && "palot" in window
 // ============================================================
 
 /**
- * Fetches discovered OpenCode projects and sessions from local storage.
- */
-export async function fetchDiscovery(): Promise<DiscoveryResult> {
-	log.debug("fetchDiscovery", { via: isElectron ? "ipc" : "http" })
-	try {
-		if (isElectron) {
-			return await window.palot.discover()
-		}
-		const { fetchDiscovery: httpFetch } = await import("./palot-server")
-		const data = await httpFetch()
-		return data as unknown as DiscoveryResult
-	} catch (err) {
-		log.error("fetchDiscovery failed", err)
-		throw err
-	}
-}
-
-/**
  * Ensures the single OpenCode server is running and returns its URL.
  */
 export async function fetchOpenCodeUrl(): Promise<{ url: string }> {
@@ -82,25 +62,6 @@ export async function fetchOpenCodeUrl(): Promise<{ url: string }> {
 		return result
 	} catch (err) {
 		log.error("fetchOpenCodeUrl failed", err)
-		throw err
-	}
-}
-
-/**
- * Fetches messages for a session from local disk storage.
- * Used for offline/discovered sessions that don't have a live OpenCode server.
- */
-export async function fetchSessionMessages(sessionId: string): Promise<MessagesResult> {
-	log.debug("fetchSessionMessages", { sessionId, via: isElectron ? "ipc" : "http" })
-	try {
-		if (isElectron) {
-			return await window.palot.getSessionMessages(sessionId)
-		}
-		const { fetchSessionMessages: httpFetch } = await import("./palot-server")
-		const data = await httpFetch(sessionId)
-		return data as unknown as MessagesResult
-	} catch (err) {
-		log.error("fetchSessionMessages failed", { sessionId }, err)
 		throw err
 	}
 }
