@@ -13,7 +13,7 @@ import { PlusIcon } from "lucide-react"
 import { useCallback, useEffect, useRef, useState, useTransition } from "react"
 import { setProjectModelAtom } from "../../atoms/preferences"
 import { appStore } from "../../atoms/store"
-import { useDraft, useDraftActions } from "../../hooks/use-draft"
+import { useDraftActions, useDraftSnapshot } from "../../hooks/use-draft"
 import type { ConfigData, ModelRef, ProvidersData, SdkAgent } from "../../hooks/use-opencode-data"
 import {
 	getModelInputCapabilities,
@@ -172,7 +172,7 @@ export function ChatInput({
 	const [, startTransition] = useTransition()
 
 	const { setDraft, clearDraft } = useDraftActions(agent.sessionId)
-	const draft = useDraft(agent.sessionId)
+	const draft = useDraftSnapshot(agent.sessionId)
 
 	const [selectedModel, setSelectedModel] = useState<ModelRef | null>(null)
 	const [selectedAgent, setSelectedAgent] = useState<string | null>(null)

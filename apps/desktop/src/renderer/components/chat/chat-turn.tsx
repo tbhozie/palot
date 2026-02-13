@@ -363,6 +363,53 @@ function hasToolErrors(toolParts: ToolPart[]): boolean {
 }
 
 // ============================================================
+// Turn comparison for memo
+// ============================================================
+
+/**
+ * Lightweight fingerprint for a ChatMessageEntry to detect real content changes
+ * without comparing the full object tree. Mirrors the logic in session-chat.ts
+ * but kept local to avoid coupling.
+ */
+function messageEntryFingerprint(entry: ChatMessageEntry): string {
+	const lastPart = entry.parts.at(-1)
+	const completed = entry.info.role === "assistant" ? (entry.info.time.completed ?? 0) : 0
+	let textLen = 0
+	const toolSegments: string[] = []
+	for (const part of entry.parts) {
+		if (part.type === "text" || part.type === "reasoning") {
+			textLen += part.text.length
+		} else if (part.type === "tool") {
+			const outLen =
+				part.state.status === "completed"
+					? part.state.output.length
+					: part.state.status === "error"
+						? part.state.error.length
+						: 0
+			toolSegments.push(`${part.id}:${part.state.status}:${outLen}`)
+		}
+	}
+	return `${entry.info.id}:${completed}:${entry.parts.length}:${lastPart?.id ?? ""}:${textLen}:${toolSegments.join(",")}`
+}
+
+/** Compare two turns by content fingerprint rather than reference equality */
+function areTurnsEqual(a: ChatTurnType, b: ChatTurnType): boolean {
+	if (a === b) return true
+	if (a.id !== b.id) return false
+	if (messageEntryFingerprint(a.userMessage) !== messageEntryFingerprint(b.userMessage))
+		return false
+	if (a.assistantMessages.length !== b.assistantMessages.length) return false
+	for (let i = 0; i < a.assistantMessages.length; i++) {
+		if (
+			messageEntryFingerprint(a.assistantMessages[i]) !==
+			messageEntryFingerprint(b.assistantMessages[i])
+		)
+			return false
+	}
+	return true
+}
+
+// ============================================================
 // ChatTurnComponent
 // ============================================================
 
@@ -373,7 +420,7 @@ interface ChatTurnProps {
 	/** Revert to this turn's user message (for per-turn undo) */
 	onRevertToMessage?: (messageId: string) => Promise<void>
 	/** Interrupt the current work and send this queued message immediately */
-	onSendNow?: () => Promise<void>
+	onSendNow?: (turn: ChatTurnType) => Promise<void>
 }
 
 /**
@@ -390,329 +437,346 @@ interface ChatTurnProps {
  * - compact: active turn shows only last 3 tools, rest in pill bar
  * - verbose: all turns show all tools expanded
  */
-export const ChatTurnComponent = memo(function ChatTurnComponent({
-	turn,
-	isLast,
-	isWorking,
-	onRevertToMessage,
-	onSendNow,
-}: ChatTurnProps) {
-	const [stepsExpanded, setStepsExpanded] = useState(false)
-	const [copied, setCopied] = useState(false)
-	const displayMode = useDisplayMode()
-	const turnRef = useRef<HTMLDivElement>(null)
+export const ChatTurnComponent = memo(
+	function ChatTurnComponent({
+		turn,
+		isLast,
+		isWorking,
+		onRevertToMessage,
+		onSendNow,
+	}: ChatTurnProps) {
+		const [stepsExpanded, setStepsExpanded] = useState(false)
+		const [copied, setCopied] = useState(false)
+		const displayMode = useDisplayMode()
+		const turnRef = useRef<HTMLDivElement>(null)
 
-	const isSynthetic = useMemo(() => isSyntheticMessage(turn.userMessage), [turn.userMessage])
-	const userText = useMemo(() => getUserText(turn.userMessage), [turn.userMessage])
-	const syntheticLabel = useMemo(
-		() => (isSynthetic ? getSyntheticLabel(turn.userMessage) : ""),
-		[isSynthetic, turn.userMessage],
-	)
-	const userFiles = useMemo(() => getFileParts(turn.userMessage), [turn.userMessage])
+		const isSynthetic = useMemo(() => isSyntheticMessage(turn.userMessage), [turn.userMessage])
+		const userText = useMemo(() => getUserText(turn.userMessage), [turn.userMessage])
+		const syntheticLabel = useMemo(
+			() => (isSynthetic ? getSyntheticLabel(turn.userMessage) : ""),
+			[isSynthetic, turn.userMessage],
+		)
+		const userFiles = useMemo(() => getFileParts(turn.userMessage), [turn.userMessage])
 
-	// Ordered parts + tool-only subset in a single pass (avoids double iteration)
-	const { ordered: orderedParts, tools: toolParts } = useMemo(
-		() => getPartsAndTools(turn.assistantMessages),
-		[turn.assistantMessages],
-	)
+		// Ordered parts + tool-only subset in a single pass (avoids double iteration)
+		const { ordered: orderedParts, tools: toolParts } = useMemo(
+			() => getPartsAndTools(turn.assistantMessages),
+			[turn.assistantMessages],
+		)
 
-	// The last text for streaming display and copy action
-	const rawResponseText = useMemo(() => getLastResponseText(orderedParts), [orderedParts])
-	const responseText = useDeferredValue(rawResponseText)
+		// The last text for streaming display and copy action
+		const rawResponseText = useMemo(() => getLastResponseText(orderedParts), [orderedParts])
+		const responseText = useDeferredValue(rawResponseText)
 
-	const errorText = useMemo(() => getError(turn.assistantMessages), [turn.assistantMessages])
+		const errorText = useMemo(() => getError(turn.assistantMessages), [turn.assistantMessages])
 
-	// Compute status by walking the last message's parts in reverse — no
-	// need to flatMap all messages into a temporary array.
-	const statusText = useMemo(() => {
-		for (let m = turn.assistantMessages.length - 1; m >= 0; m--) {
-			const status = computeStatus(turn.assistantMessages[m].parts)
-			if (status !== "Working...") return status
-		}
-		return "Working..."
-	}, [turn.assistantMessages])
+		// Compute status by walking the last message's parts in reverse — no
+		// need to flatMap all messages into a temporary array.
+		const statusText = useMemo(() => {
+			for (let m = turn.assistantMessages.length - 1; m >= 0; m--) {
+				const status = computeStatus(turn.assistantMessages[m].parts)
+				if (status !== "Working...") return status
+			}
+			return "Working..."
+		}, [turn.assistantMessages])
 
-	const working = isLast && isWorking
-	const isQueued = isWorking && turn.assistantMessages.length === 0 && !isLast
-	const isQueuedLast = isWorking && turn.assistantMessages.length === 0 && isLast
-	const hasSteps = toolParts.length > 0
-	const hasReasoning = orderedParts.some((p) => p.kind === "reasoning")
-	const hasErrors = useMemo(() => hasToolErrors(toolParts), [toolParts])
-	const lastAssistant = turn.assistantMessages.at(-1)
-	const duration = useMemo(() => {
-		const lastInfo = lastAssistant?.info
-		const completed = lastInfo?.role === "assistant" ? lastInfo.time.completed : undefined
-		return computeDuration(turn.userMessage.info.time.created, completed)
-	}, [turn.userMessage.info.time.created, lastAssistant?.info])
+		const working = isLast && isWorking
+		const isQueued = isWorking && turn.assistantMessages.length === 0 && !isLast
+		const isQueuedLast = isWorking && turn.assistantMessages.length === 0 && isLast
+		const hasSteps = toolParts.length > 0
+		const hasReasoning = orderedParts.some((p) => p.kind === "reasoning")
+		const hasErrors = useMemo(() => hasToolErrors(toolParts), [toolParts])
+		const lastAssistant = turn.assistantMessages.at(-1)
+		const duration = useMemo(() => {
+			const lastInfo = lastAssistant?.info
+			const completed = lastInfo?.role === "assistant" ? lastInfo.time.completed : undefined
+			return computeDuration(turn.userMessage.info.time.created, completed)
+		}, [turn.userMessage.info.time.created, lastAssistant?.info])
 
-	// Icon pills for the compact summary bar
-	const pills = useMemo(() => getToolPills(toolParts), [toolParts])
+		// Icon pills for the compact summary bar
+		const pills = useMemo(() => getToolPills(toolParts), [toolParts])
 
-	// Determine if tools should be shown individually (active turn behavior)
-	const isActiveTurn = working
-	const showToolsExpanded = displayMode === "verbose" || isActiveTurn || stepsExpanded
+		// Determine if tools should be shown individually (active turn behavior)
+		const isActiveTurn = working
+		const showToolsExpanded = displayMode === "verbose" || isActiveTurn || stepsExpanded
 
-	// In compact mode during active turn, only show the last N ordered parts
-	const visibleParts = useMemo(() => {
-		if (displayMode === "compact" && isActiveTurn && orderedParts.length > 5) {
-			return orderedParts.slice(-5)
-		}
-		return orderedParts
-	}, [displayMode, isActiveTurn, orderedParts])
+		// In compact mode during active turn, only show the last N ordered parts
+		const visibleParts = useMemo(() => {
+			if (displayMode === "compact" && isActiveTurn && orderedParts.length > 5) {
+				return orderedParts.slice(-5)
+			}
+			return orderedParts
+		}, [displayMode, isActiveTurn, orderedParts])
 
-	// How many parts are hidden in compact mode
-	const hiddenCount =
-		displayMode === "compact" && isActiveTurn ? Math.max(0, orderedParts.length - 5) : 0
+		// How many parts are hidden in compact mode
+		const hiddenCount =
+			displayMode === "compact" && isActiveTurn ? Math.max(0, orderedParts.length - 5) : 0
 
-	// When expanded, all text parts are already rendered inline within the
-	// ordered parts list. The separate "final response" block should only
-	// appear when collapsed (pill bar mode) to show the response below the summary.
-	// Note: text is only inline if the tools/steps section actually renders
-	// (requires working || hasSteps || hasReasoning), otherwise the inline
-	// rendering block is skipped and we must fall through to the standalone block.
-	const toolsSectionVisible = working || hasSteps || hasReasoning
-	const textAlreadyInline =
-		showToolsExpanded && toolsSectionVisible && orderedParts.some((p) => p.kind === "text")
+		// When expanded, all text parts are already rendered inline within the
+		// ordered parts list. The separate "final response" block should only
+		// appear when collapsed (pill bar mode) to show the response below the summary.
+		// Note: text is only inline if the tools/steps section actually renders
+		// (requires working || hasSteps || hasReasoning), otherwise the inline
+		// rendering block is skipped and we must fall through to the standalone block.
+		const toolsSectionVisible = working || hasSteps || hasReasoning
+		const textAlreadyInline =
+			showToolsExpanded && toolsSectionVisible && orderedParts.some((p) => p.kind === "text")
 
-	const handleCopyResponse = useCallback(async () => {
-		if (!responseText) return
-		await navigator.clipboard.writeText(responseText)
-		setCopied(true)
-		setTimeout(() => setCopied(false), 2000)
-	}, [responseText])
+		const handleCopyResponse = useCallback(async () => {
+			if (!responseText) return
+			await navigator.clipboard.writeText(responseText)
+			setCopied(true)
+			setTimeout(() => setCopied(false), 2000)
+		}, [responseText])
 
-	const handleRevertHere = useCallback(async () => {
-		if (!onRevertToMessage) return
-		await onRevertToMessage(turn.userMessage.info.id)
-	}, [onRevertToMessage, turn.userMessage.info.id])
+		const handleRevertHere = useCallback(async () => {
+			if (!onRevertToMessage) return
+			await onRevertToMessage(turn.userMessage.info.id)
+		}, [onRevertToMessage, turn.userMessage.info.id])
 
-	const handleScrollToTop = useCallback(() => {
-		turnRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-	}, [])
+		const handleScrollToTop = useCallback(() => {
+			turnRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+		}, [])
 
-	const [sendingNow, setSendingNow] = useState(false)
-	const handleSendNow = useCallback(async () => {
-		if (!onSendNow || sendingNow) return
-		setSendingNow(true)
-		try {
-			await onSendNow()
-		} finally {
-			setSendingNow(false)
-		}
-	}, [onSendNow, sendingNow])
+		const [sendingNow, setSendingNow] = useState(false)
+		const handleSendNow = useCallback(async () => {
+			if (!onSendNow || sendingNow) return
+			setSendingNow(true)
+			try {
+				await onSendNow(turn)
+			} finally {
+				setSendingNow(false)
+			}
+		}, [onSendNow, sendingNow, turn])
 
-	return (
-		<div ref={turnRef} className="group/turn space-y-4">
-			{/* User message */}
-			{isSynthetic ? (
-				<div className="flex items-center justify-end gap-1.5 text-[11px] italic text-muted-foreground/50">
-					<BotIcon className="size-3" aria-hidden="true" />
-					<span>{syntheticLabel}</span>
-				</div>
-			) : (
-				<Message from="user">
-					<MessageContent>
-						{userFiles.length > 0 && <AttachmentGrid files={userFiles} />}
-						<p className="whitespace-pre-wrap">{userText}</p>
-						{(isQueued || isQueuedLast) && (
-							<span className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground/60">
-								<ListOrderedIcon className="size-3" />
-								Queued
-								{onSendNow && (
-									<button
-										type="button"
-										onClick={handleSendNow}
-										disabled={sendingNow}
-										className="ml-1 inline-flex items-center gap-0.5 rounded-full bg-muted/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-50"
-									>
-										<SendIcon className="size-2.5" />
-										{sendingNow ? "Sending..." : "Send now"}
-									</button>
-								)}
-							</span>
-						)}
-					</MessageContent>
-				</Message>
-			)}
-
-			{/* Tool calls + reasoning section */}
-			{(working || hasSteps || hasReasoning) && (
-				<div className="space-y-2">
-					{/* Summary bar — shown when NOT expanded (completed turns) */}
-					{!showToolsExpanded && hasSteps && (
-						<button
-							type="button"
-							onClick={() => setStepsExpanded(true)}
-							className="flex items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
-						>
-							<ChevronDownIcon className="size-3 -rotate-90" />
-							<div className="flex items-center gap-1.5">
-								{pills.map((pill) => (
-									<ToolPill key={pill.category} pill={pill} />
-								))}
-							</div>
-							<span className="text-muted-foreground/40">{duration}</span>
-							{hasErrors && (
-								<span className="rounded-full bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
-									errors
+		return (
+			<div ref={turnRef} className="group/turn space-y-4">
+				{/* User message */}
+				{isSynthetic ? (
+					<div className="flex items-center justify-end gap-1.5 text-[11px] italic text-muted-foreground/50">
+						<BotIcon className="size-3" aria-hidden="true" />
+						<span>{syntheticLabel}</span>
+					</div>
+				) : (
+					<Message from="user">
+						<MessageContent>
+							{userFiles.length > 0 && <AttachmentGrid files={userFiles} />}
+							<p className="whitespace-pre-wrap">{userText}</p>
+							{(isQueued || isQueuedLast) && (
+								<span className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground/60">
+									<ListOrderedIcon className="size-3" />
+									Queued
+									{onSendNow && (
+										<button
+											type="button"
+											onClick={handleSendNow}
+											disabled={sendingNow}
+											className="ml-1 inline-flex items-center gap-0.5 rounded-full bg-muted/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:opacity-50"
+										>
+											<SendIcon className="size-2.5" />
+											{sendingNow ? "Sending..." : "Send now"}
+										</button>
+									)}
 								</span>
 							)}
-						</button>
-					)}
+						</MessageContent>
+					</Message>
+				)}
 
-					{/* Reasoning blocks — always visible (they have their own collapse) */}
-					{!showToolsExpanded && hasReasoning && (
-						<div className="space-y-2">
-							{orderedParts
-								.filter(
-									(p): p is Extract<RenderablePart, { kind: "reasoning" }> =>
-										p.kind === "reasoning",
-								)
-								.map((item) => {
-									const reasoningText = item.part.text.replace("[REDACTED]", "").trim()
-									if (!reasoningText) return null
-									const durationSec = item.part.time.end
-										? Math.ceil((item.part.time.end - item.part.time.start) / 1000)
-										: undefined
+				{/* Tool calls + reasoning section */}
+				{(working || hasSteps || hasReasoning) && (
+					<div className="space-y-2">
+						{/* Summary bar — shown when NOT expanded (completed turns) */}
+						{!showToolsExpanded && hasSteps && (
+							<button
+								type="button"
+								onClick={() => setStepsExpanded(true)}
+								className="flex items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+							>
+								<ChevronDownIcon className="size-3 -rotate-90" />
+								<div className="flex items-center gap-1.5">
+									{pills.map((pill) => (
+										<ToolPill key={pill.category} pill={pill} />
+									))}
+								</div>
+								<span className="text-muted-foreground/40">{duration}</span>
+								{hasErrors && (
+									<span className="rounded-full bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
+										errors
+									</span>
+								)}
+							</button>
+						)}
+
+						{/* Reasoning blocks — always visible (they have their own collapse) */}
+						{!showToolsExpanded && hasReasoning && (
+							<div className="space-y-2">
+								{orderedParts
+									.filter(
+										(p): p is Extract<RenderablePart, { kind: "reasoning" }> =>
+											p.kind === "reasoning",
+									)
+									.map((item) => {
+										const reasoningText = item.part.text.replace("[REDACTED]", "").trim()
+										if (!reasoningText) return null
+										const durationSec = item.part.time.end
+											? Math.ceil((item.part.time.end - item.part.time.start) / 1000)
+											: undefined
+										return (
+											<Reasoning
+												key={item.part.id}
+												isStreaming={false}
+												duration={durationSec}
+												defaultOpen={false}
+											>
+												<ReasoningTrigger />
+												<ReasoningContent>{reasoningText}</ReasoningContent>
+											</Reasoning>
+										)
+									})}
+							</div>
+						)}
+
+						{/* Collapse button — shown when expanded on completed turns */}
+						{showToolsExpanded && !isActiveTurn && hasSteps && (
+							<button
+								type="button"
+								onClick={() => setStepsExpanded(false)}
+								className="flex items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+							>
+								<ChevronDownIcon className="size-3" />
+								<span className="text-muted-foreground/60">
+									{toolParts.length} {toolParts.length === 1 ? "step" : "steps"}
+								</span>
+								<span className="text-muted-foreground/40">{duration}</span>
+							</button>
+						)}
+
+						{/* Active turn status line (while working, before tools/reasoning appear) */}
+						{working && !hasSteps && !hasReasoning && (
+							<div className="flex items-center gap-2 text-xs text-muted-foreground">
+								<Shimmer className="text-xs">{statusText}</Shimmer>
+							</div>
+						)}
+
+						{/* Hidden parts indicator (compact mode) */}
+						{showToolsExpanded && hiddenCount > 0 && (
+							<div className="flex items-center gap-1.5 pl-1 text-[11px] text-muted-foreground/50">
+								<span>
+									+ {hiddenCount} earlier {hiddenCount === 1 ? "step" : "steps"}
+								</span>
+							</div>
+						)}
+
+						{/* Expanded: interleaved text + reasoning + tool calls in natural order */}
+						{showToolsExpanded && (
+							<div className="space-y-3.5">
+								{visibleParts.map((item) => {
+									if (item.kind === "tool") {
+										return (
+											<ChatToolCall
+												key={item.part.id}
+												part={item.part}
+												isActiveTurn={isActiveTurn}
+											/>
+										)
+									}
+									if (item.kind === "reasoning") {
+										const reasoningText = item.part.text.replace("[REDACTED]", "").trim()
+										if (!reasoningText) return null
+										const durationSec = item.part.time.end
+											? Math.ceil((item.part.time.end - item.part.time.start) / 1000)
+											: undefined
+										const isReasoningStreaming = !item.part.time.end && working
+										return (
+											<Reasoning
+												key={item.part.id}
+												isStreaming={isReasoningStreaming}
+												duration={durationSec}
+												defaultOpen={isReasoningStreaming ? undefined : false}
+											>
+												<ReasoningTrigger />
+												<ReasoningContent animated={isReasoningStreaming}>
+													{reasoningText}
+												</ReasoningContent>
+											</Reasoning>
+										)
+									}
 									return (
-										<Reasoning
-											key={item.part.id}
-											isStreaming={false}
-											duration={durationSec}
-											defaultOpen={false}
-										>
-											<ReasoningTrigger />
-											<ReasoningContent>{reasoningText}</ReasoningContent>
-										</Reasoning>
+										<div key={item.id} className="py-0.5">
+											<Message from="assistant">
+												<MessageContent>
+													<MessageResponse>{item.text}</MessageResponse>
+												</MessageContent>
+											</Message>
+										</div>
 									)
 								})}
-						</div>
-					)}
+							</div>
+						)}
+					</div>
+				)}
 
-					{/* Collapse button — shown when expanded on completed turns */}
-					{showToolsExpanded && !isActiveTurn && hasSteps && (
-						<button
-							type="button"
-							onClick={() => setStepsExpanded(false)}
-							className="flex items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
-						>
-							<ChevronDownIcon className="size-3" />
-							<span className="text-muted-foreground/60">
-								{toolParts.length} {toolParts.length === 1 ? "step" : "steps"}
-							</span>
-							<span className="text-muted-foreground/40">{duration}</span>
-						</button>
-					)}
+				{/* Error */}
+				{errorText && (
+					<div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
+						{errorText.length > 300 ? `${errorText.slice(0, 300)}...` : errorText}
+					</div>
+				)}
 
-					{/* Active turn status line (while working, before tools/reasoning appear) */}
-					{working && !hasSteps && !hasReasoning && (
-						<div className="flex items-center gap-2 text-xs text-muted-foreground">
-							<Shimmer className="text-xs">{statusText}</Shimmer>
-						</div>
-					)}
+				{/* Thinking shimmer — shown when working and no response text yet */}
+				{working && !responseText && hasSteps && (
+					<div className="py-1">
+						<Shimmer className="text-sm">{statusText}</Shimmer>
+					</div>
+				)}
 
-					{/* Hidden parts indicator (compact mode) */}
-					{showToolsExpanded && hiddenCount > 0 && (
-						<div className="flex items-center gap-1.5 pl-1 text-[11px] text-muted-foreground/50">
-							<span>
-								+ {hiddenCount} earlier {hiddenCount === 1 ? "step" : "steps"}
-							</span>
-						</div>
-					)}
+				{/* Assistant response — shown when not working AND not already rendered inline */}
+				{!working && responseText && !textAlreadyInline && (
+					<Message from="assistant">
+						<MessageContent>
+							<MessageResponse>{responseText}</MessageResponse>
+						</MessageContent>
+					</Message>
+				)}
 
-					{/* Expanded: interleaved text + reasoning + tool calls in natural order */}
-					{showToolsExpanded && (
-						<div className="space-y-3.5">
-							{visibleParts.map((item) => {
-								if (item.kind === "tool") {
-									return (
-										<ChatToolCall key={item.part.id} part={item.part} isActiveTurn={isActiveTurn} />
-									)
-								}
-								if (item.kind === "reasoning") {
-									const reasoningText = item.part.text.replace("[REDACTED]", "").trim()
-									if (!reasoningText) return null
-									const durationSec = item.part.time.end
-										? Math.ceil((item.part.time.end - item.part.time.start) / 1000)
-										: undefined
-									const isReasoningStreaming = !item.part.time.end && working
-									return (
-										<Reasoning
-											key={item.part.id}
-											isStreaming={isReasoningStreaming}
-											duration={durationSec}
-											defaultOpen={isReasoningStreaming ? undefined : false}
-										>
-											<ReasoningTrigger />
-											<ReasoningContent animated={isReasoningStreaming}>
-												{reasoningText}
-											</ReasoningContent>
-										</Reasoning>
-									)
-								}
-								return (
-									<div key={item.id} className="py-0.5">
-										<Message from="assistant">
-											<MessageContent>
-												<MessageResponse>{item.text}</MessageResponse>
-											</MessageContent>
-										</Message>
-									</div>
-								)
-							})}
-						</div>
-					)}
-				</div>
-			)}
+				{/* Streaming response — visible while working, when text isn't already inline */}
+				{working && responseText && !textAlreadyInline && (
+					<Message from="assistant">
+						<MessageContent>
+							<MessageResponse animated>{responseText}</MessageResponse>
+						</MessageContent>
+					</Message>
+				)}
 
-			{/* Error */}
-			{errorText && (
-				<div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
-					{errorText.length > 300 ? `${errorText.slice(0, 300)}...` : errorText}
-				</div>
-			)}
-
-			{/* Thinking shimmer — shown when working and no response text yet */}
-			{working && !responseText && hasSteps && (
-				<div className="py-1">
-					<Shimmer className="text-sm">{statusText}</Shimmer>
-				</div>
-			)}
-
-			{/* Assistant response — shown when not working AND not already rendered inline */}
-			{!working && responseText && !textAlreadyInline && (
-				<Message from="assistant">
-					<MessageContent>
-						<MessageResponse>{responseText}</MessageResponse>
-					</MessageContent>
-				</Message>
-			)}
-
-			{/* Streaming response — visible while working, when text isn't already inline */}
-			{working && responseText && !textAlreadyInline && (
-				<Message from="assistant">
-					<MessageContent>
-						<MessageResponse animated>{responseText}</MessageResponse>
-					</MessageContent>
-				</Message>
-			)}
-
-			{/* Turn-level message actions — visible on hover across all display modes */}
-			{responseText && (
-				<MessageActions className="opacity-0 transition-opacity group-hover/turn:opacity-100">
-					<MessageAction tooltip="Scroll to top" onClick={handleScrollToTop}>
-						<ArrowUpToLineIcon className="size-3" />
-					</MessageAction>
-					<MessageAction tooltip={copied ? "Copied" : "Copy response"} onClick={handleCopyResponse}>
-						{copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
-					</MessageAction>
-					{onRevertToMessage && !working && (
-						<MessageAction tooltip="Undo from here" onClick={handleRevertHere}>
-							<Undo2Icon className="size-3" />
+				{/* Turn-level message actions — visible on hover across all display modes */}
+				{responseText && (
+					<MessageActions className="opacity-0 transition-opacity group-hover/turn:opacity-100">
+						<MessageAction tooltip="Scroll to top" onClick={handleScrollToTop}>
+							<ArrowUpToLineIcon className="size-3" />
 						</MessageAction>
-					)}
-				</MessageActions>
-			)}
-		</div>
-	)
-})
+						<MessageAction
+							tooltip={copied ? "Copied" : "Copy response"}
+							onClick={handleCopyResponse}
+						>
+							{copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
+						</MessageAction>
+						{onRevertToMessage && !working && (
+							<MessageAction tooltip="Undo from here" onClick={handleRevertHere}>
+								<Undo2Icon className="size-3" />
+							</MessageAction>
+						)}
+					</MessageActions>
+				)}
+			</div>
+		)
+	},
+	(prev, next) => {
+		if (!areTurnsEqual(prev.turn, next.turn)) return false
+		if (prev.isLast !== next.isLast) return false
+		if (prev.isWorking !== next.isWorking) return false
+		// Skip reference comparison for callbacks - they close over stable values
+		// and their identity changes don't affect rendered output
+		return true
+	},
+)

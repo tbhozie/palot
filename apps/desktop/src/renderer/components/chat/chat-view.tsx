@@ -39,7 +39,7 @@ import { messagesFamily, removeMessageAtom } from "../../atoms/messages"
 import { projectModelsAtom, setProjectModelAtom } from "../../atoms/preferences"
 import { sessionFamily } from "../../atoms/sessions"
 import { appStore } from "../../atoms/store"
-import { useDraft, useDraftActions } from "../../hooks/use-draft"
+import { useDraftActions, useDraftSnapshot } from "../../hooks/use-draft"
 import type {
 	ConfigData,
 	ModelRef,
@@ -501,8 +501,11 @@ export function ChatView({
 		[onDeny],
 	)
 
-	// Draft persistence — survives session switches and reloads
-	const draft = useDraft(agent.sessionId)
+	// Draft persistence — survives session switches and reloads.
+	// Non-reactive snapshot: the draft is only used for PromptInputProvider's
+	// initialInput (consumed once on mount). Reactive useDraft would cause the
+	// entire ChatView to re-render every time the debounced draft write fires.
+	const draft = useDraftSnapshot(agent.sessionId)
 	const { setDraft, clearDraft } = useDraftActions(agent.sessionId)
 
 	// Escape-to-abort: double-press within 3s
@@ -1097,11 +1100,7 @@ export function ChatView({
 										isLast={index === turns.length - 1}
 										isWorking={isWorking}
 										onRevertToMessage={onRevertToMessage}
-										onSendNow={
-											isWorking && turn.assistantMessages.length === 0
-												? () => handleSendNow(turn)
-												: undefined
-										}
+										onSendNow={isWorking ? handleSendNow : undefined}
 									/>
 								))
 							) : (

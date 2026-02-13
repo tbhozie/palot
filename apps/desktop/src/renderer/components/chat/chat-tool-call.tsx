@@ -885,135 +885,166 @@ interface ChatToolCallProps {
 }
 
 /**
+ * Compares two ToolPart objects for meaningful changes.
+ * Avoids re-renders when a new object reference has the same content.
+ */
+function areToolPartsEqual(a: ToolPart, b: ToolPart): boolean {
+	if (a === b) return true
+	if (a.id !== b.id) return false
+	if (a.state.status !== b.state.status) return false
+	// Compare output/error lengths for completed/error states
+	if (a.state.status === "completed" && b.state.status === "completed") {
+		if (a.state.output.length !== b.state.output.length) return false
+		if (a.state.time.end !== b.state.time.end) return false
+	}
+	if (a.state.status === "error" && b.state.status === "error") {
+		if (a.state.error !== b.state.error) return false
+	}
+	return true
+}
+
+/**
  * Renders a single tool call as a ToolCard with tool-specific content,
  * or as a SubAgentCard for sub-agent tasks.
  */
-export const ChatToolCall = memo(function ChatToolCall({
-	part,
-	isActiveTurn = false,
-	permission,
-	onApprove,
-	onDeny,
-}: ChatToolCallProps) {
-	// Compute diff stats for edit tools (shown in trailing area)
-	// Must be called before early returns to satisfy hooks rules.
-	const diffStats = useMemo(() => {
-		if (part.tool !== "edit") return undefined
-		const oldString = part.state.input?.oldString as string | undefined
-		const newString = part.state.input?.newString as string | undefined
-		if (oldString == null || newString == null) return undefined
-		return computeDiffStats(oldString, newString)
-	}, [part.tool, part.state.input?.oldString, part.state.input?.newString])
+export const ChatToolCall = memo(
+	function ChatToolCall({
+		part,
+		isActiveTurn = false,
+		permission,
+		onApprove,
+		onDeny,
+	}: ChatToolCallProps) {
+		// Compute diff stats for edit tools (shown in trailing area)
+		// Must be called before early returns to satisfy hooks rules.
+		const diffStats = useMemo(() => {
+			if (part.tool !== "edit") return undefined
+			const oldString = part.state.input?.oldString as string | undefined
+			const newString = part.state.input?.newString as string | undefined
+			if (oldString == null || newString == null) return undefined
+			return computeDiffStats(oldString, newString)
+		}, [part.tool, part.state.input?.oldString, part.state.input?.newString])
 
-	const duration = getToolDuration(part)
-	const status = part.state.status as "running" | "error" | "completed" | "pending"
+		const duration = getToolDuration(part)
+		const status = part.state.status as "running" | "error" | "completed" | "pending"
 
-	// Build trailing element: diff stats + duration/spinner
-	// Must be called before early returns to satisfy hooks rules.
-	const trailingElement = useMemo(() => {
-		const parts: ReactNode[] = []
+		// Build trailing element: diff stats + duration/spinner
+		// Must be called before early returns to satisfy hooks rules.
+		const trailingElement = useMemo(() => {
+			const parts: ReactNode[] = []
 
-		// Diff stats for edit tools
-		if (diffStats) {
-			parts.push(
-				<span key="stats" className="flex items-center gap-1.5 text-[11px]">
-					<span className="flex items-center gap-0.5 text-diff-addition-foreground">
-						<PlusIcon className="size-2.5" aria-hidden="true" />
-						{diffStats.additions}
-					</span>
-					<span className="flex items-center gap-0.5 text-diff-deletion-foreground">
-						<MinusIcon className="size-2.5" aria-hidden="true" />
-						{diffStats.deletions}
-					</span>
-				</span>,
-			)
-		}
-
-		// Duration or spinner
-		if (duration) {
-			parts.push(
-				<span key="duration" className="text-[11px]">
-					{duration}
-				</span>,
-			)
-		} else if (status === "running" || status === "pending") {
-			parts.push(
-				<Loader2Icon key="spinner" className="size-3 animate-spin text-muted-foreground/40" />,
-			)
-		}
-
-		if (parts.length === 0) return undefined
-		if (parts.length === 1) return parts[0]
-		return <span className="flex items-center gap-2.5">{parts}</span>
-	}, [diffStats, duration, status])
-
-	// Skip rendering todoread parts without output
-	if (part.tool === "todoread" && part.state.status !== "completed") return null
-
-	// --- Task tool: Sub-agent card ---
-	if (part.tool === "task") {
-		return <SubAgentCard part={part} />
-	}
-
-	// --- All other tools (including todos): ToolCard ---
-	const { icon: Icon, title } = getToolInfo(part.tool)
-	const subtitle = getToolSubtitle(part)
-	const category = getToolCategory(part.tool)
-	const hasContent = hasExpandableContent(part)
-	const defaultOpen = isActiveTurn ? shouldDefaultOpen(part.tool, status) : false
-
-	// Extract attachments
-	const attachments: FilePart[] =
-		part.state.status === "completed" ? ((part.state as ToolStateCompleted).attachments ?? []) : []
-
-	return (
-		<div className="space-y-1.5">
-			<ToolCard
-				icon={<Icon className="size-3.5" />}
-				title={title}
-				subtitle={subtitle}
-				trailing={trailingElement}
-				category={category}
-				defaultOpen={defaultOpen}
-				forceOpen={
-					status === "error" ||
-					(permission != null && (status === "pending" || status === "running"))
-				}
-				hasContent={hasContent || permission != null}
-				status={status}
-			>
-				{/* Tool-specific content */}
-				{hasContent && getToolContent(part)}
-
-				{/* Inline permission prompt */}
-				{permission && (status === "pending" || status === "running") && (
-					<div className="mx-3.5 my-2.5 flex items-center gap-2.5 rounded-md border border-blue-500/30 bg-blue-500/[0.03] px-3 py-2">
-						<span className="flex-1 truncate text-xs text-muted-foreground">
-							{permission.title}
+			// Diff stats for edit tools
+			if (diffStats) {
+				parts.push(
+					<span key="stats" className="flex items-center gap-1.5 text-[11px]">
+						<span className="flex items-center gap-0.5 text-diff-addition-foreground">
+							<PlusIcon className="size-2.5" aria-hidden="true" />
+							{diffStats.additions}
 						</span>
-						<button
-							type="button"
-							onClick={() => onDeny?.(permission.id)}
-							className="shrink-0 text-xs text-muted-foreground hover:text-red-400"
-						>
-							Deny
-						</button>
-						<button
-							type="button"
-							onClick={() => onApprove?.(permission.id, "once")}
-							className="shrink-0 text-xs font-medium text-blue-400 hover:text-blue-300"
-						>
-							Approve
-						</button>
-					</div>
-				)}
-			</ToolCard>
+						<span className="flex items-center gap-0.5 text-diff-deletion-foreground">
+							<MinusIcon className="size-2.5" aria-hidden="true" />
+							{diffStats.deletions}
+						</span>
+					</span>,
+				)
+			}
 
-			{/* Tool attachments (images, etc.) */}
-			{attachments.length > 0 && <ToolAttachments attachments={attachments} />}
-		</div>
-	)
-})
+			// Duration or spinner
+			if (duration) {
+				parts.push(
+					<span key="duration" className="text-[11px]">
+						{duration}
+					</span>,
+				)
+			} else if (status === "running" || status === "pending") {
+				parts.push(
+					<Loader2Icon key="spinner" className="size-3 animate-spin text-muted-foreground/40" />,
+				)
+			}
+
+			if (parts.length === 0) return undefined
+			if (parts.length === 1) return parts[0]
+			return <span className="flex items-center gap-2.5">{parts}</span>
+		}, [diffStats, duration, status])
+
+		// Skip rendering todoread parts without output
+		if (part.tool === "todoread" && part.state.status !== "completed") return null
+
+		// --- Task tool: Sub-agent card ---
+		if (part.tool === "task") {
+			return <SubAgentCard part={part} />
+		}
+
+		// --- All other tools (including todos): ToolCard ---
+		const { icon: Icon, title } = getToolInfo(part.tool)
+		const subtitle = getToolSubtitle(part)
+		const category = getToolCategory(part.tool)
+		const hasContent = hasExpandableContent(part)
+		const defaultOpen = isActiveTurn ? shouldDefaultOpen(part.tool, status) : false
+
+		// Extract attachments
+		const attachments: FilePart[] =
+			part.state.status === "completed"
+				? ((part.state as ToolStateCompleted).attachments ?? [])
+				: []
+
+		return (
+			<div className="space-y-1.5">
+				<ToolCard
+					icon={<Icon className="size-3.5" />}
+					title={title}
+					subtitle={subtitle}
+					trailing={trailingElement}
+					category={category}
+					defaultOpen={defaultOpen}
+					forceOpen={
+						status === "error" ||
+						(permission != null && (status === "pending" || status === "running"))
+					}
+					hasContent={hasContent || permission != null}
+					status={status}
+				>
+					{/* Tool-specific content */}
+					{hasContent && getToolContent(part)}
+
+					{/* Inline permission prompt */}
+					{permission && (status === "pending" || status === "running") && (
+						<div className="mx-3.5 my-2.5 flex items-center gap-2.5 rounded-md border border-blue-500/30 bg-blue-500/[0.03] px-3 py-2">
+							<span className="flex-1 truncate text-xs text-muted-foreground">
+								{permission.title}
+							</span>
+							<button
+								type="button"
+								onClick={() => onDeny?.(permission.id)}
+								className="shrink-0 text-xs text-muted-foreground hover:text-red-400"
+							>
+								Deny
+							</button>
+							<button
+								type="button"
+								onClick={() => onApprove?.(permission.id, "once")}
+								className="shrink-0 text-xs font-medium text-blue-400 hover:text-blue-300"
+							>
+								Approve
+							</button>
+						</div>
+					)}
+				</ToolCard>
+
+				{/* Tool attachments (images, etc.) */}
+				{attachments.length > 0 && <ToolAttachments attachments={attachments} />}
+			</div>
+		)
+	},
+	(prev, next) => {
+		if (!areToolPartsEqual(prev.part, next.part)) return false
+		if (prev.isActiveTurn !== next.isActiveTurn) return false
+		if (prev.permission !== next.permission) return false
+		// onApprove/onDeny are callback refs - skip reference comparison to avoid
+		// re-renders from parent creating new closures
+		return true
+	},
+)
 
 // ============================================================
 // ToolAttachments — inline thumbnails for tool output images

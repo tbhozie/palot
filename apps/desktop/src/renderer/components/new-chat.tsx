@@ -23,7 +23,7 @@ import { projectModelsAtom, setProjectModelAtom } from "../atoms/preferences"
 import { setSessionBranchAtom, setSessionWorktreeAtom, upsertSessionAtom } from "../atoms/sessions"
 import { appStore } from "../atoms/store"
 import { useAgents, useProjectList } from "../hooks/use-agents"
-import { NEW_CHAT_DRAFT_KEY, useDraft, useDraftActions } from "../hooks/use-draft"
+import { NEW_CHAT_DRAFT_KEY, useDraftActions, useDraftSnapshot } from "../hooks/use-draft"
 import type { ModelRef } from "../hooks/use-opencode-data"
 import {
 	getModelInputCapabilities,
@@ -152,8 +152,10 @@ export function NewChat() {
 	const [error, setError] = useState<string | null>(null)
 	const [worktreeMode, setWorktreeMode] = useState<"local" | "worktree">("local")
 
-	// Draft persistence — survives page reloads
-	const draft = useDraft(NEW_CHAT_DRAFT_KEY)
+	// Draft persistence — survives page reloads.
+	// Non-reactive snapshot: the draft is only used for PromptInputProvider's
+	// initialInput (consumed once on mount), so reactive tracking is unnecessary.
+	const draft = useDraftSnapshot(NEW_CHAT_DRAFT_KEY)
 	const { setDraft, clearDraft } = useDraftActions(NEW_CHAT_DRAFT_KEY)
 	const [projectPickerOpen, setProjectPickerOpen] = useState(false)
 

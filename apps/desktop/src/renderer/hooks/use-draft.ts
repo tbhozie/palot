@@ -1,5 +1,5 @@
-import { useAtomValue } from "jotai"
-import { useCallback, useEffect, useRef } from "react"
+import { atom, useAtomValue } from "jotai"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 import { clearDraftAtom, draftsAtom, setDraftAtom } from "../atoms/preferences"
 import { appStore } from "../atoms/store"
 
@@ -7,11 +7,25 @@ import { appStore } from "../atoms/store"
 export const NEW_CHAT_DRAFT_KEY = "__new_chat__"
 
 /**
- * Returns the current draft text for a given key.
+ * Returns the current draft text for a given key (reactive).
+ * Uses a per-key derived atom so changes to OTHER keys in the drafts map
+ * do not cause re-renders. Only re-renders when this specific key's value changes.
  */
 export function useDraft(key: string): string {
-	const drafts = useAtomValue(draftsAtom)
-	return drafts[key] ?? ""
+	const keyedAtom = useMemo(() => atom((get) => get(draftsAtom)[key] ?? ""), [key])
+	return useAtomValue(keyedAtom)
+}
+
+/**
+ * Returns the current draft text as a non-reactive snapshot.
+ * Reads directly from the store without subscribing, so subsequent
+ * draft writes do NOT cause re-renders. Recomputes only when `key` changes.
+ *
+ * Use this for `initialInput` props where the value is consumed once on mount
+ * and reactive updates would cause unnecessary parent re-renders.
+ */
+export function useDraftSnapshot(key: string): string {
+	return useMemo(() => appStore.get(draftsAtom)[key] ?? "", [key])
 }
 
 /**
