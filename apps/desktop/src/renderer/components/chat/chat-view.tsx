@@ -24,6 +24,7 @@ import {
 	MonitorIcon,
 	PlusIcon,
 	Redo2Icon,
+	SquareIcon,
 	Undo2Icon,
 } from "lucide-react"
 import {
@@ -55,6 +56,7 @@ import {
 } from "../../hooks/use-opencode-data"
 import type { ChatTurn } from "../../hooks/use-session-chat"
 import { createLogger } from "../../lib/logger"
+import { formatWorkDuration } from "../../lib/session-metrics"
 import type { Agent, FileAttachment, FilePart, QuestionAnswer, TextPart } from "../../lib/types"
 import { getProjectClient } from "../../services/connection-manager"
 
@@ -437,6 +439,15 @@ export function ChatView({
 }: ChatViewProps) {
 	const isWorking = agent.status === "running"
 	const [sending, setSending] = useState(false)
+
+	// Start time of the current (last) turn — used for the live timer on the submit button
+	const currentTurnStartMs = useMemo(() => {
+		if (!isWorking || turns.length === 0) return 0
+		const lastTurn = turns[turns.length - 1]
+		const firstAssistant = lastTurn.assistantMessages[0]
+		if (!firstAssistant || firstAssistant.info.role !== "assistant") return 0
+		return firstAssistant.info.time.created
+	}, [isWorking, turns])
 
 	// Mention tracking — files and agents referenced via @
 	const [mentions, setMentions] = useState<PromptMention[]>([])
@@ -1269,7 +1280,12 @@ export function ChatView({
 											disabled={!canSend}
 											status={isWorking ? "streaming" : undefined}
 											onStop={handleStop}
-										/>
+											size={isWorking && currentTurnStartMs > 0 ? "xs" : "icon-sm"}
+										>
+											{isWorking && currentTurnStartMs > 0 ? (
+												<LiveTurnTimer startMs={currentTurnStartMs} />
+											) : undefined}
+										</PromptInputSubmit>
 									</PromptInputFooter>
 								</PromptInput>
 							</div>
@@ -1307,5 +1323,31 @@ export function ChatView({
 				onSelect={handleSkillSelect}
 			/>
 		</div>
+	)
+}
+
+// ============================================================
+// Live turn timer — ticks every second while the agent is working
+// ============================================================
+
+/**
+ * Compact live timer that shows how long the current turn has been running.
+ * Renders a stop icon + ticking duration inside the submit button.
+ */
+function LiveTurnTimer({ startMs }: { startMs: number }) {
+	const [elapsed, setElapsed] = useState(() => formatWorkDuration(Date.now() - startMs))
+
+	useEffect(() => {
+		const tick = () => setElapsed(formatWorkDuration(Date.now() - startMs))
+		tick()
+		const id = setInterval(tick, 1_000)
+		return () => clearInterval(id)
+	}, [startMs])
+
+	return (
+		<span className="inline-flex items-center gap-1.5 text-xs tabular-nums">
+			<SquareIcon className="size-3.5" />
+			{elapsed}
+		</span>
 	)
 }
