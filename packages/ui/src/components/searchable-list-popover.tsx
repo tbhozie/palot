@@ -1,6 +1,5 @@
+import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
 import { cn } from "@palot/ui/lib/utils"
-import { Popover as PopoverPrimitive } from "radix-ui"
-import type * as React from "react"
 import {
 	createContext,
 	type ReactNode,
@@ -77,10 +76,7 @@ function SearchableListPopover({
 // Trigger
 // ============================================================
 
-function SearchableListPopoverTrigger({
-	className,
-	...props
-}: React.ComponentProps<typeof PopoverPrimitive.Trigger>) {
+function SearchableListPopoverTrigger({ className, ...props }: PopoverPrimitive.Trigger.Props) {
 	return (
 		<PopoverPrimitive.Trigger
 			data-slot="searchable-list-popover-trigger"
@@ -94,11 +90,12 @@ function SearchableListPopoverTrigger({
 // Content — the popover panel with proper sizing
 // ============================================================
 
-interface SearchableListPopoverContentProps
-	extends Omit<React.ComponentProps<typeof PopoverPrimitive.Content>, "children"> {
-	children: ReactNode
+interface SearchableListPopoverContentProps extends PopoverPrimitive.Popup.Props {
 	/** Width class, defaults to "w-72" */
 	width?: string
+	align?: PopoverPrimitive.Positioner.Props["align"]
+	side?: PopoverPrimitive.Positioner.Props["side"]
+	sideOffset?: PopoverPrimitive.Positioner.Props["sideOffset"]
 }
 
 function SearchableListPopoverContent({
@@ -107,25 +104,29 @@ function SearchableListPopoverContent({
 	width = "w-72",
 	align = "end",
 	side = "top",
+	sideOffset = 4,
 	...props
 }: SearchableListPopoverContentProps) {
 	return (
 		<PopoverPrimitive.Portal>
-			<PopoverPrimitive.Content
-				data-slot="searchable-list-popover-content"
+			<PopoverPrimitive.Positioner
 				align={align}
 				side={side}
-				sideOffset={4}
-				className={cn(
-					"bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 origin-(--radix-popover-content-transform-origin) overflow-hidden rounded-md border p-0 shadow-md outline-hidden",
-					width,
-					className,
-				)}
-				onOpenAutoFocus={(e) => e.preventDefault()}
-				{...props}
+				sideOffset={sideOffset}
+				className="isolate z-50"
 			>
-				{children}
-			</PopoverPrimitive.Content>
+				<PopoverPrimitive.Popup
+					data-slot="searchable-list-popover-content"
+					className={cn(
+						"bg-popover text-popover-foreground data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 origin-(--transform-origin) overflow-hidden rounded-md border p-0 shadow-md outline-hidden",
+						width,
+						className,
+					)}
+					{...props}
+				>
+					{children}
+				</PopoverPrimitive.Popup>
+			</PopoverPrimitive.Positioner>
 		</PopoverPrimitive.Portal>
 	)
 }
@@ -189,7 +190,7 @@ function SearchableListPopoverList({
 	return (
 		<ScrollArea
 			className={cn(
-				"overflow-hidden [&>[data-radix-scroll-area-viewport]]:max-h-[inherit]",
+				"overflow-hidden [&>[data-slot=scroll-area-viewport]]:max-h-[inherit]",
 				maxHeight,
 				className,
 			)}
@@ -204,7 +205,7 @@ function SearchableListPopoverList({
 // ============================================================
 
 interface SearchableListPopoverGroupProps {
-	label: string
+	label: React.ReactNode
 	children: ReactNode
 	className?: string
 }
@@ -216,7 +217,7 @@ function SearchableListPopoverGroup({
 }: SearchableListPopoverGroupProps) {
 	return (
 		<div className={className}>
-			<div className="sticky top-0 z-10 border-b bg-popover px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+			<div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-popover px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
 				{label}
 			</div>
 			{children}
