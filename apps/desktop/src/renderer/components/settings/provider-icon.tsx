@@ -69,6 +69,7 @@ function hashString(str: string): number {
 // ============================================================
 
 const SIZE_CLASSES = {
+	xs: "size-4",
 	sm: "size-7",
 	md: "size-8",
 	lg: "size-10",
@@ -79,17 +80,19 @@ interface ProviderIconProps {
 	id: string
 	/** Provider display name (used for letter fallback) */
 	name: string
-	size?: "sm" | "md" | "lg"
+	size?: "xs" | "sm" | "md" | "lg"
 	className?: string
 }
 
 export function ProviderIcon({ id, name, size = "md", className = "" }: ProviderIconProps) {
 	const svg = SVG_MAP.get(id) ?? FALLBACK_SVG
 
+	const rounding = size === "xs" ? "rounded-sm" : "rounded-md"
+
 	if (svg) {
 		return (
 			<div
-				className={`flex shrink-0 items-center justify-center rounded-md ${SIZE_CLASSES[size]} ${className}`}
+				className={`flex shrink-0 items-center justify-center ${rounding} ${SIZE_CLASSES[size]} ${className}`}
 				aria-hidden="true"
 				// biome-ignore lint/security/noDangerouslySetInnerHtml: trusted SVGs from models.dev
 				dangerouslySetInnerHTML={{ __html: svg }}
@@ -100,11 +103,11 @@ export function ProviderIcon({ id, name, size = "md", className = "" }: Provider
 	// Ultimate fallback: colored letter avatar
 	const colorClass = AVATAR_COLORS[hashString(id) % AVATAR_COLORS.length]
 	const letter = name.charAt(0).toUpperCase()
-	const textSize = size === "sm" ? "text-xs" : "text-sm"
+	const textSize = size === "xs" ? "text-[9px]" : size === "sm" ? "text-xs" : "text-sm"
 
 	return (
 		<div
-			className={`flex shrink-0 items-center justify-center rounded-md font-semibold ${SIZE_CLASSES[size]} ${textSize} ${colorClass} ${className}`}
+			className={`flex shrink-0 items-center justify-center ${rounding} font-semibold ${SIZE_CLASSES[size]} ${textSize} ${colorClass} ${className}`}
 			aria-hidden="true"
 		>
 			{letter}

@@ -17,6 +17,7 @@ import {
 	SelectValue,
 } from "@palot/ui/components/select"
 import { Separator } from "@palot/ui/components/separator"
+import { cn } from "@palot/ui/lib/utils"
 import {
 	CheckIcon,
 	ChevronDownIcon,
@@ -38,6 +39,22 @@ import type {
 	VcsData,
 } from "../../hooks/use-opencode-data"
 import { getModelVariants, parseModelRef } from "../../hooks/use-opencode-data"
+import { ProviderIcon } from "../settings/provider-icon"
+
+// ============================================================
+// Shared toolbar trigger styles
+// ============================================================
+
+/** Base classes shared by ALL toolbar triggers (Popover + Select). */
+const TOOLBAR_TRIGGER_BASE_CN =
+	"flex h-7 items-center gap-1 rounded-md border-none bg-transparent px-2 text-xs shadow-none transition-colors"
+
+/**
+ * Classes for SelectTrigger overrides. Uses `!` modifier to beat the base
+ * component's `py-2 pl-2.5 pr-2 dark:bg-input/30 dark:hover:bg-input/50`.
+ */
+const TOOLBAR_TRIGGER_CN =
+	"h-7! gap-1 border-none bg-transparent! hover:bg-muted! px-2! py-0! text-xs shadow-none transition-colors"
 
 // ============================================================
 // Agent Selector
@@ -71,11 +88,14 @@ export function AgentSelector({
 	const currentAgent = currentAgentObj?.name ?? preferred
 
 	return (
-		<Select value={currentAgent} onValueChange={onSelectAgent} disabled={disabled}>
-			<SelectTrigger
-				size="sm"
-				className="h-7 gap-1 border-none bg-transparent px-2 text-xs shadow-none"
-			>
+		<Select
+			value={currentAgent}
+			onValueChange={(v) => {
+				if (v !== null) onSelectAgent(v)
+			}}
+			disabled={disabled}
+		>
+			<SelectTrigger className={TOOLBAR_TRIGGER_CN}>
 				<span className="flex items-center gap-1.5">
 					{currentAgentObj?.color && (
 						<span
@@ -86,7 +106,7 @@ export function AgentSelector({
 					<span className="capitalize">{currentAgent}</span>
 				</span>
 			</SelectTrigger>
-			<SelectContent side="top" position="popper" className="min-w-[200px]">
+			<SelectContent side="top" align="start" alignItemWithTrigger={false}>
 				{agents.map((agent) => (
 					<SelectItem key={agent.name} value={agent.name}>
 						<div className="flex items-center gap-2">
@@ -97,13 +117,6 @@ export function AgentSelector({
 								/>
 							)}
 							<span className="capitalize">{agent.name}</span>
-							{agent.description && (
-								<span className="ml-auto text-[10px] text-muted-foreground/60">
-									{agent.description.length > 30
-										? `${agent.description.slice(0, 30)}...`
-										: agent.description}
-								</span>
-							)}
 						</div>
 					</SelectItem>
 				))}
@@ -222,18 +235,21 @@ export function ModelSelector({
 	return (
 		<SearchableListPopover open={open} onOpenChange={setOpen}>
 			<SearchableListPopoverTrigger
-				className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs transition-colors hover:bg-muted disabled:opacity-50"
+				className={cn(
+					TOOLBAR_TRIGGER_BASE_CN,
+					"hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50",
+				)}
 				disabled={disabled}
 			>
 				{activeModel ? (
 					<>
+						<ProviderIcon id={activeModel.providerID} name={activeModel.providerName} size="xs" />
 						<span>{activeModel.displayName}</span>
-						<span className="text-muted-foreground/60">{activeModel.providerName}</span>
 					</>
 				) : (
 					<span className="text-muted-foreground">Select model...</span>
 				)}
-				<ChevronDownIcon className="size-3 text-muted-foreground/60" />
+				<ChevronDownIcon className="size-4 shrink-0 text-muted-foreground pointer-events-none" />
 			</SearchableListPopoverTrigger>
 			<SearchableListPopoverContent side="top" align="start">
 				<SearchableListPopoverSearch placeholder="Search models..." />
@@ -309,23 +325,38 @@ function ModelSelectorList({
 					)}
 
 					{/* Provider-grouped models */}
-					{Array.from(grouped.entries()).map(([providerName, providerModels]) => (
-						<SearchableListPopoverGroup key={providerName} label={providerName}>
-							{providerModels.map((model) => (
-								<SearchableListPopoverItem key={model.value} onSelect={() => onSelect(model.value)}>
-									<span className="min-w-0 flex-1 truncate">{model.displayName}</span>
-									{model.reasoning && (
-										<span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground/60">
-											reasoning
-										</span>
-									)}
-									{model.value === activeValue && (
-										<CheckIcon className="size-3.5 shrink-0 text-primary" />
-									)}
-								</SearchableListPopoverItem>
-							))}
-						</SearchableListPopoverGroup>
-					))}
+					{Array.from(grouped.entries()).map(([providerName, providerModels]) => {
+						// Get the provider ID from the first model in the group to look up the icon
+						const providerId = providerModels[0]?.providerID
+						return (
+							<SearchableListPopoverGroup
+								key={providerName}
+								label={
+									<>
+										{providerId && <ProviderIcon id={providerId} name={providerName} size="xs" />}
+										<span>{providerName}</span>
+									</>
+								}
+							>
+								{providerModels.map((model) => (
+									<SearchableListPopoverItem
+										key={model.value}
+										onSelect={() => onSelect(model.value)}
+									>
+										<span className="min-w-0 flex-1 truncate">{model.displayName}</span>
+										{model.reasoning && (
+											<span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground/60">
+												reasoning
+											</span>
+										)}
+										{model.value === activeValue && (
+											<CheckIcon className="size-3.5 shrink-0 text-primary" />
+										)}
+									</SearchableListPopoverItem>
+								))}
+							</SearchableListPopoverGroup>
+						)
+					})}
 				</>
 			)}
 		</SearchableListPopoverList>
@@ -351,6 +382,16 @@ export function VariantSelector({
 	onSelectVariant,
 	disabled,
 }: VariantSelectorProps) {
+	// Base UI Select needs an explicit items map so SelectValue can resolve
+	// labels before the popup is opened (items only mount inside the portal).
+	const items = useMemo(() => {
+		const map: Record<string, string> = { __default__: "Default variant" }
+		for (const v of variants) {
+			map[v] = v.charAt(0).toUpperCase() + v.slice(1)
+		}
+		return map
+	}, [variants])
+
 	if (variants.length === 0) return null
 
 	// "default" is a sentinel for "no variant override".
@@ -362,16 +403,19 @@ export function VariantSelector({
 	return (
 		<Select
 			value={value}
-			onValueChange={(v) => onSelectVariant(v === "__default__" ? undefined : v)}
+			onValueChange={(v) => onSelectVariant(v === "__default__" ? undefined : (v ?? undefined))}
 			disabled={disabled}
+			items={items}
 		>
-			<SelectTrigger
-				size="sm"
-				className="h-7 gap-1 border-none bg-transparent px-2 text-xs shadow-none"
-			>
+			<SelectTrigger className={TOOLBAR_TRIGGER_CN}>
 				<SelectValue />
 			</SelectTrigger>
-			<SelectContent side="top" position="popper" className="min-w-[120px]">
+			<SelectContent
+				side="top"
+				align="start"
+				alignItemWithTrigger={false}
+				className="min-w-[160px]"
+			>
 				<SelectItem value="__default__">
 					<span className="text-muted-foreground">Default variant</span>
 				</SelectItem>
@@ -455,7 +499,7 @@ export function PromptToolbar({
 				/>
 			)}
 
-			{hasAgents && <Separator orientation="vertical" className="mx-0.5 h-4" />}
+			{hasAgents && <Separator orientation="vertical" className="mx-0.5 my-2 self-stretch" />}
 
 			<ModelSelector
 				providers={providers}
@@ -466,7 +510,7 @@ export function PromptToolbar({
 				disabled={disabled}
 			/>
 
-			{hasVariants && <Separator orientation="vertical" className="mx-0.5 h-4" />}
+			{hasVariants && <Separator orientation="vertical" className="mx-0.5 my-2 self-stretch" />}
 
 			{hasVariants && (
 				<VariantSelector
