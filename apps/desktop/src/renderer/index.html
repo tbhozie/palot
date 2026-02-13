@@ -28,6 +28,18 @@
         document.documentElement.classList.add('dark');
       }
     </script>
+    <script>
+      // React Scan: dev-only render visualizer. Loaded via script tag outside
+      // Vite's module graph so it survives HMR. Uses document.write to ensure
+      // the script loads synchronously before React's module script executes.
+      // Toggle via Command Palette (Cmd+K > "React Scan"). Only active in dev
+      // since production React builds don't expose the DevTools hook.
+      try {
+        if (localStorage.getItem('palot:reactScan') === 'true') {
+          document.write('<script src="https://unpkg.com/react-scan/dist/auto.global.js"><\/script>');
+        }
+      } catch (e) {}
+    </script>
     <div id="root"></div>
     <script type="module" src="./main.tsx"></script>
   </body>

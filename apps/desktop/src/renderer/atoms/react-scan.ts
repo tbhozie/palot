@@ -1,9 +1,9 @@
 /**
  * Jotai atoms for the React Scan dev-tool toggle.
  *
- * The actual react-scan library state lives outside React (initialized before
- * React even loads). These atoms mirror that state so the Command Palette can
- * read/write it reactively.
+ * React Scan is loaded via a synchronous script tag in index.html (outside
+ * Vite's module graph) so it survives HMR. Toggling requires a page reload
+ * because the DevTools hook must be installed before React initializes.
  */
 
 import { atom } from "jotai"
@@ -13,28 +13,26 @@ const STORAGE_KEY = "palot:reactScan"
 
 /**
  * Persisted toggle for React Scan.
- * Kept in sync with the same localStorage key used by `lib/react-scan.ts`.
+ * Read by the inline script in index.html to decide whether to load react-scan.
  */
 export const reactScanStorageAtom = atomWithStorage<boolean>(STORAGE_KEY, false)
 
 /**
- * Read-only derived atom (simple pass-through for now, but allows future
- * composition with URL params or other overrides like mock-mode does).
+ * Read-only derived atom.
  */
 export const isReactScanAtom = atom((get) => get(reactScanStorageAtom))
 
 /**
  * Write-only toggle atom for the Command Palette.
- * Flips the persisted value AND calls the runtime react-scan toggle.
+ * Flips the persisted value and reloads the page so react-scan can
+ * be loaded (or not) before React initializes.
  */
-export const toggleReactScanAtom = atom(null, async (get, set) => {
+export const toggleReactScanAtom = atom(null, (get, set) => {
 	const next = !get(reactScanStorageAtom)
 	set(reactScanStorageAtom, next)
 
-	// Lazily import the runtime helper so this atom file does not pull in
-	// react-scan at module level (it may not be loaded in production).
-	if (import.meta.env.DEV) {
-		const { setReactScanEnabled } = await import("../lib/react-scan")
-		setReactScanEnabled(next)
-	}
+	// Small delay so Jotai's storage sync completes before reload
+	setTimeout(() => {
+		window.location.reload()
+	}, 50)
 })
