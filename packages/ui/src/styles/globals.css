@@ -596,13 +596,30 @@
 }
 
 /* ============================================================
- * Command palette — Notion-style frosted glass (UNLAYERED)
+ * Command palette — snappy animation
  *
- * Must be outside @layer to beat Tailwind's bg-background and
- * bg-popover utilities. The dialog wrapper is made fully
- * transparent so backdrop-filter on the command surface blurs
- * through to the OS glass layer.
+ * Faster fade-only entrance (no zoom scale) so the palette
+ * feels instant. Frosted-glass rules below must be outside
+ * @layer to beat Tailwind's bg-background / bg-popover.
  * ============================================================ */
+[data-slot="dialog-content"][data-variant="command"] {
+  animation-duration: var(--duration-fast) !important;
+  animation-timing-function: var(--ease-out) !important;
+}
+
+[data-slot="dialog-content"][data-variant="command"][data-state="open"] {
+  --tw-enter-scale: 1 !important;
+}
+
+[data-slot="dialog-content"][data-variant="command"][data-state="closed"] {
+  --tw-exit-scale: 1 !important;
+}
+
+[data-slot="dialog-overlay"]:has(+ [data-variant="command"]) {
+  animation-duration: var(--duration-fast) !important;
+}
+
+
 :root.electron-transparent [data-slot="dialog-content"][data-variant="command"],
 :root.electron-vibrancy [data-slot="dialog-content"][data-variant="command"] {
   background: transparent;

@@ -16,7 +16,14 @@ import {
 	usePromptInputController,
 } from "@palot/ui/components/ai-elements/prompt-input"
 import { useAtomValue } from "jotai"
-import { ChevronUpIcon, Loader2Icon, PlusIcon, Redo2Icon, Undo2Icon } from "lucide-react"
+import {
+	ArrowUpToLineIcon,
+	ChevronUpIcon,
+	Loader2Icon,
+	PlusIcon,
+	Redo2Icon,
+	Undo2Icon,
+} from "lucide-react"
 import {
 	useCallback,
 	useEffect,
@@ -121,27 +128,113 @@ function ScrollOnLoad({ loading, sessionId }: { loading: boolean; sessionId: str
 	return null
 }
 
+interface ScrollHandle {
+	scrollToBottom: (behavior?: "instant" | "smooth") => void
+	/** Returns the current scrollHeight of the scroll container */
+	getScrollHeight: () => number
+	/** Smoothly scrolls the container to a specific scrollTop value */
+	scrollToPosition: (top: number) => void
+}
+
 /**
  * Bridge that exposes the StickToBottom `scrollToBottom` to the parent
  * via a ref so imperative callers (handleSend, question reply, etc.)
  * can force a scroll-to-bottom even when the user has scrolled away.
+ * Also exposes scroll position helpers for the "jump to start" feature.
  */
-function ScrollBridge({
-	scrollRef,
-}: {
-	scrollRef: React.RefObject<{ scrollToBottom: (behavior?: "instant" | "smooth") => void } | null>
-}) {
-	const { scrollToBottom } = useStickToBottomContext()
+function ScrollBridge({ scrollRef }: { scrollRef: React.RefObject<ScrollHandle | null> }) {
+	const ctx = useStickToBottomContext()
 	useImperativeHandle(
 		scrollRef,
 		() => ({
 			scrollToBottom: (behavior?: "instant" | "smooth") => {
-				scrollToBottom(behavior ?? "smooth")
+				ctx.scrollToBottom(behavior ?? "smooth")
+			},
+			getScrollHeight: () => {
+				return ctx.scrollRef.current?.scrollHeight ?? 0
+			},
+			scrollToPosition: (top: number) => {
+				ctx.scrollRef.current?.scrollTo({ top, behavior: "smooth" })
 			},
 		}),
-		[scrollToBottom],
+		[ctx],
 	)
 	return null
+}
+
+/**
+ * Floating pill button that appears when the agent finishes working.
+ * Scrolls to the beginning of the last assistant response so the user
+ * can read it from the top. Dismisses on click or after 8 seconds.
+ *
+ * Captures the scroll container's scrollHeight when the agent starts
+ * working (idle-to-working transition). This position corresponds to
+ * "where the new response began" regardless of whether the agent
+ * started from a fresh message, a question answer, or a permission grant.
+ *
+ * Must be rendered inside `<Conversation>` to position correctly.
+ */
+function ScrollToResponseStart({
+	isWorking,
+	scrollRef,
+}: {
+	isWorking: boolean
+	scrollRef: React.RefObject<ScrollHandle | null>
+}) {
+	const [visible, setVisible] = useState(false)
+	const prevWorkingRef = useRef(isWorking)
+	// Saved scrollHeight at the moment the agent started working.
+	// This is the Y position where the new response content begins.
+	const savedScrollTopRef = useRef(0)
+
+	useEffect(() => {
+		const wasWorking = prevWorkingRef.current
+		prevWorkingRef.current = isWorking
+
+		if (!wasWorking && isWorking) {
+			// Agent just started working -- snapshot where the response will begin.
+			// scrollHeight is the total content height; subtracting a small offset
+			// so the scroll lands slightly above the first new content.
+			const handle = scrollRef.current
+			if (handle) {
+				savedScrollTopRef.current = Math.max(0, handle.getScrollHeight() - 80)
+			}
+		}
+
+		if (wasWorking && !isWorking) {
+			// Agent finished -- show the pill
+			setVisible(true)
+		}
+
+		if (isWorking) {
+			setVisible(false)
+		}
+	}, [isWorking, scrollRef])
+
+	// Auto-dismiss after 8 seconds
+	useEffect(() => {
+		if (!visible) return
+		const timer = setTimeout(() => setVisible(false), 8000)
+		return () => clearTimeout(timer)
+	}, [visible])
+
+	const handleClick = useCallback(() => {
+		scrollRef.current?.scrollToPosition(savedScrollTopRef.current)
+		setVisible(false)
+	}, [scrollRef])
+
+	if (!visible) return null
+
+	return (
+		<button
+			type="button"
+			onClick={handleClick}
+			className="absolute bottom-14 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground shadow-md transition-colors hover:bg-muted hover:text-foreground"
+		>
+			<ArrowUpToLineIcon className="size-3" />
+			<span>Jump to start of response</span>
+		</button>
+	)
 }
 
 /**
@@ -354,9 +447,7 @@ export function ChatView({
 
 	// Ref to imperatively scroll the conversation to bottom from outside the
 	// <Conversation> tree (e.g. after sending a message or answering a question).
-	const scrollRef = useRef<{ scrollToBottom: (behavior?: "instant" | "smooth") => void } | null>(
-		null,
-	)
+	const scrollRef = useRef<ScrollHandle | null>(null)
 
 	// Session-level error from session.error events
 	const sessionEntry = useAtomValue(sessionFamily(agent.sessionId))
@@ -1027,6 +1118,7 @@ export function ChatView({
 							)}
 						</div>
 					</ConversationContent>
+					<ScrollToResponseStart isWorking={isWorking} scrollRef={scrollRef} />
 					<ConversationScrollButton />
 				</Conversation>
 

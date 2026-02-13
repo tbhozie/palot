@@ -14,6 +14,7 @@ import { Shimmer } from "@palot/ui/components/ai-elements/shimmer"
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@palot/ui/components/dialog"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@palot/ui/components/tooltip"
 import {
+	ArrowUpToLineIcon,
 	BotIcon,
 	CheckIcon,
 	ChevronDownIcon,
@@ -29,7 +30,7 @@ import {
 	WrenchIcon,
 	ZapIcon,
 } from "lucide-react"
-import { memo, useCallback, useDeferredValue, useMemo, useState } from "react"
+import { memo, useCallback, useDeferredValue, useMemo, useRef, useState } from "react"
 import { useDisplayMode } from "../../hooks/use-agents"
 import type { ChatMessageEntry, ChatTurn as ChatTurnType } from "../../hooks/use-session-chat"
 import type { FilePart, Part, ReasoningPart, TextPart, ToolPart } from "../../lib/types"
@@ -399,6 +400,7 @@ export const ChatTurnComponent = memo(function ChatTurnComponent({
 	const [stepsExpanded, setStepsExpanded] = useState(false)
 	const [copied, setCopied] = useState(false)
 	const displayMode = useDisplayMode()
+	const turnRef = useRef<HTMLDivElement>(null)
 
 	const isSynthetic = useMemo(() => isSyntheticMessage(turn.userMessage), [turn.userMessage])
 	const userText = useMemo(() => getUserText(turn.userMessage), [turn.userMessage])
@@ -484,6 +486,10 @@ export const ChatTurnComponent = memo(function ChatTurnComponent({
 		await onRevertToMessage(turn.userMessage.info.id)
 	}, [onRevertToMessage, turn.userMessage.info.id])
 
+	const handleScrollToTop = useCallback(() => {
+		turnRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+	}, [])
+
 	const [sendingNow, setSendingNow] = useState(false)
 	const handleSendNow = useCallback(async () => {
 		if (!onSendNow || sendingNow) return
@@ -496,7 +502,7 @@ export const ChatTurnComponent = memo(function ChatTurnComponent({
 	}, [onSendNow, sendingNow])
 
 	return (
-		<div className="group/turn space-y-4">
+		<div ref={turnRef} className="group/turn space-y-4">
 			{/* User message */}
 			{isSynthetic ? (
 				<div className="flex items-center justify-end gap-1.5 text-[11px] italic text-muted-foreground/50">
@@ -679,19 +685,6 @@ export const ChatTurnComponent = memo(function ChatTurnComponent({
 					<MessageContent>
 						<MessageResponse>{responseText}</MessageResponse>
 					</MessageContent>
-					<MessageActions className="opacity-0 transition-opacity group-hover/turn:opacity-100">
-						<MessageAction
-							tooltip={copied ? "Copied" : "Copy response"}
-							onClick={handleCopyResponse}
-						>
-							{copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
-						</MessageAction>
-						{onRevertToMessage && (
-							<MessageAction tooltip="Undo from here" onClick={handleRevertHere}>
-								<Undo2Icon className="size-3" />
-							</MessageAction>
-						)}
-					</MessageActions>
 				</Message>
 			)}
 
@@ -702,6 +695,23 @@ export const ChatTurnComponent = memo(function ChatTurnComponent({
 						<MessageResponse animated>{responseText}</MessageResponse>
 					</MessageContent>
 				</Message>
+			)}
+
+			{/* Turn-level message actions — visible on hover across all display modes */}
+			{responseText && (
+				<MessageActions className="opacity-0 transition-opacity group-hover/turn:opacity-100">
+					<MessageAction tooltip="Scroll to top" onClick={handleScrollToTop}>
+						<ArrowUpToLineIcon className="size-3" />
+					</MessageAction>
+					<MessageAction tooltip={copied ? "Copied" : "Copy response"} onClick={handleCopyResponse}>
+						{copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
+					</MessageAction>
+					{onRevertToMessage && !working && (
+						<MessageAction tooltip="Undo from here" onClick={handleRevertHere}>
+							<Undo2Icon className="size-3" />
+						</MessageAction>
+					)}
+				</MessageActions>
 			)}
 		</div>
 	)
