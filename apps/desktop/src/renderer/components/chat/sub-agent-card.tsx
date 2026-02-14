@@ -14,7 +14,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { messagesFamily } from "../../atoms/messages"
 import { partsFamily } from "../../atoms/parts"
 import { appStore } from "../../atoms/store"
-import { getAllStreamingParts, streamingVersionAtom } from "../../atoms/streaming"
+import { getStreamingPartsForSession, streamingVersionFamily } from "../../atoms/streaming"
 import type { Part, ToolPart, ToolState } from "../../lib/types"
 import { getToolDuration, getToolInfo, getToolSubtitle } from "./chat-tool-call"
 import { getToolCategory, TOOL_CATEGORY_COLORS } from "./tool-card"
@@ -211,9 +211,9 @@ export const SubAgentCard = memo(function SubAgentCard({ part: propPart }: SubAg
 	// Access child session data from the store.
 	const childMessages = useAtomValue(messagesFamily(sessionId ?? ""))
 
-	// Subscribe to the streaming version so we see text/reasoning updates
-	// in real-time during active streaming, not just after flush.
-	const streamingVersion = useAtomValue(streamingVersionAtom)
+	// Subscribe to the per-session streaming version so we only re-render
+	// when this child session streams, not when any other session streams.
+	const streamingVersion = useAtomValue(streamingVersionFamily(sessionId ?? ""))
 
 	// Derive child session's activity
 	const { latestToolParts, latestText, childStatus } = useMemo(() => {
@@ -221,11 +221,10 @@ export const SubAgentCard = memo(function SubAgentCard({ part: propPart }: SubAg
 			return { latestToolParts: [], latestText: undefined, childStatus: undefined }
 		}
 
-		// Read streaming overrides — text/reasoning parts accumulate here
-		// at ~50ms cadence before being flushed to the main store.
+		// Read streaming overrides scoped to this child session.
 		// Reference streamingVersion so the linter sees it as used and it triggers recomputation.
 		void streamingVersion
-		const streaming = getAllStreamingParts()
+		const streaming = getStreamingPartsForSession(sessionId ?? "")
 
 		const allParts: Part[] = []
 		for (const msg of childMessages) {
@@ -261,7 +260,7 @@ export const SubAgentCard = memo(function SubAgentCard({ part: propPart }: SubAg
 		const childStatus = computeSubAgentStatus(allParts)
 
 		return { latestToolParts, latestText, childStatus }
-	}, [childMessages, streamingVersion])
+	}, [childMessages, streamingVersion, sessionId])
 
 	// Extract first meaningful line for the summary teaser.
 	// "hasMore" is true when the full text has content beyond the first line.

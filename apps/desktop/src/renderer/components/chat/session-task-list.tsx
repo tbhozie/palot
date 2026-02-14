@@ -13,7 +13,7 @@ import { useMemo, useState } from "react"
 import { messagesFamily } from "../../atoms/messages"
 import { partsFamily } from "../../atoms/parts"
 import { appStore } from "../../atoms/store"
-import { streamingVersionAtom } from "../../atoms/streaming"
+import { streamingVersionFamily } from "../../atoms/streaming"
 import { todosFamily } from "../../atoms/todos"
 import type { Todo } from "../../lib/types"
 
@@ -27,7 +27,7 @@ import type { Todo } from "../../lib/types"
 function useSessionTodos(sessionId: string | null): Todo[] {
 	const storeTodos = useAtomValue(todosFamily(sessionId ?? ""))
 	const storeMessages = useAtomValue(messagesFamily(sessionId ?? ""))
-	const streamingVersion = useAtomValue(streamingVersionAtom)
+	const streamingVersion = useAtomValue(streamingVersionFamily(sessionId ?? ""))
 
 	return useMemo(() => {
 		// If we have SSE-pushed todos, prefer those — they're the most up-to-date

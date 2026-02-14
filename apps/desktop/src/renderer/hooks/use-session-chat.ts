@@ -10,7 +10,7 @@ import { messagesFamily, setMessagesAtom } from "../atoms/messages"
 import { isMockModeAtom } from "../atoms/mock-mode"
 import { partsFamily } from "../atoms/parts"
 import { appStore } from "../atoms/store"
-import { streamingVersionAtom } from "../atoms/streaming"
+import { streamingVersionFamily } from "../atoms/streaming"
 import type { Message, Part } from "../lib/types"
 import { getBaseClient, getProjectClient } from "../services/connection-manager"
 
@@ -30,6 +30,8 @@ const INITIAL_LIMIT = 30
  * - Does a one-time initial fetch to hydrate the store
  * - Uses structural sharing in `groupIntoTurns` to preserve React.memo()
  * - No polling — SSE keeps data up to date
+ * - Subscribes to the per-session streaming version so only updates for
+ *   THIS session trigger re-renders (not all sessions globally).
  */
 export function useSessionChat(
 	directory: string | null,
@@ -46,17 +48,19 @@ export function useSessionChat(
 
 	// Read from Jotai atoms
 	const storeMessages = useAtomValue(messagesFamily(sessionId ?? ""))
-	const streamingVersion = useAtomValue(streamingVersionAtom)
+	// Per-session streaming version: only bumped when THIS session streams
+	const streamingVersion = useAtomValue(streamingVersionFamily(sessionId ?? ""))
 
 	// Build ChatMessageEntry[] merging streaming overlay
 	const entries: ChatMessageEntry[] = useMemo(() => {
 		if (!storeMessages || storeMessages.length === 0) return EMPTY_ENTRIES
 		return mergeSessionParts(
+			sessionId ?? "",
 			storeMessages,
 			(messageId) => appStore.get(partsFamily(messageId)),
 			streamingVersion,
 		)
-	}, [storeMessages, streamingVersion])
+	}, [storeMessages, streamingVersion, sessionId])
 
 	// Group into turns with structural sharing
 	const turns = useMemo(() => {

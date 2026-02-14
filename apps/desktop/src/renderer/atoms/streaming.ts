@@ -1,11 +1,13 @@
 import { atom } from "jotai"
+import { atomFamily } from "jotai-family"
 import type { Part } from "../lib/types"
 import { appStore } from "./store"
 
 // ============================================================
 // Streaming Buffer — module-scoped (NOT atoms)
 // Same pattern as the old streaming-store.ts but notifies
-// via a Jotai atom version counter instead of useSyncExternalStore.
+// via per-session Jotai version counters so only the affected
+// session's components re-render.
 // ============================================================
 
 /** Throttle interval for React notifications — ~20 updates/sec */
@@ -14,35 +16,88 @@ const FLUSH_THROTTLE_MS = 50
 /** Parts keyed by messageID -> Part object, only for actively-streaming parts */
 let buffer: Record<string, Record<string, Part>> = {}
 
-/** Throttle state */
-let flushScheduled: ReturnType<typeof setTimeout> | undefined
-let lastFlush = 0
+// ============================================================
+// Per-session notification
+// ============================================================
 
 /**
- * Atom that components subscribe to for streaming overlay.
- * Value is a version counter — bumped at throttled intervals.
+ * Per-session version counter. Only the session that is actively streaming
+ * will have its counter bumped, so components for other sessions stay idle.
+ */
+export const streamingVersionFamily = atomFamily((_sessionId: string) => atom(0))
+
+/**
+ * @deprecated Use `streamingVersionFamily(sessionId)` instead.
+ * Kept temporarily so any transient consumers still compile.
  */
 export const streamingVersionAtom = atom(0)
 
-// ============================================================
-// Internal helpers
-// ============================================================
+/** Per-session throttle state */
+const sessionThrottle = new Map<
+	string,
+	{ scheduled: ReturnType<typeof setTimeout> | undefined; lastFlush: number }
+>()
 
-function notify(): void {
-	flushScheduled = undefined
-	lastFlush = performance.now()
-	// Bump the atom version — this triggers React re-renders
-	appStore.set(streamingVersionAtom, (v) => v + 1)
+/** Set of session IDs that have been dirtied since the last per-session flush. */
+const dirtySessionIds = new Set<string>()
+
+function getThrottle(sessionId: string) {
+	let t = sessionThrottle.get(sessionId)
+	if (!t) {
+		t = { scheduled: undefined, lastFlush: 0 }
+		sessionThrottle.set(sessionId, t)
+	}
+	return t
 }
 
-function scheduleNotify(): void {
-	if (flushScheduled) return
-	const elapsed = performance.now() - lastFlush
+function notifySession(sessionId: string): void {
+	const t = getThrottle(sessionId)
+	t.scheduled = undefined
+	t.lastFlush = performance.now()
+	dirtySessionIds.delete(sessionId)
+	appStore.set(streamingVersionFamily(sessionId), (v) => v + 1)
+}
+
+function scheduleNotifySession(sessionId: string): void {
+	const t = getThrottle(sessionId)
+	if (t.scheduled) return
+	const elapsed = performance.now() - t.lastFlush
 	if (elapsed >= FLUSH_THROTTLE_MS) {
-		notify()
+		notifySession(sessionId)
 	} else {
-		flushScheduled = setTimeout(notify, FLUSH_THROTTLE_MS - elapsed)
+		t.scheduled = setTimeout(() => notifySession(sessionId), FLUSH_THROTTLE_MS - elapsed)
 	}
+}
+
+// ============================================================
+// Session ID lookup — messageID -> sessionID
+// ============================================================
+
+/**
+ * Lightweight map from messageID to sessionID. Populated when streaming
+ * parts arrive (Part.sessionID is on every SDK Part variant).
+ */
+const messageSessionMap = new Map<string, string>()
+
+/** Look up which session a message belongs to. */
+export function getSessionForMessage(messageId: string): string | undefined {
+	return messageSessionMap.get(messageId)
+}
+
+/**
+ * Get streaming parts scoped to a specific session.
+ * Only returns parts belonging to messages in that session.
+ */
+export function getStreamingPartsForSession(
+	sessionId: string,
+): Record<string, Record<string, Part>> {
+	const result: Record<string, Record<string, Part>> = {}
+	for (const messageId in buffer) {
+		if (messageSessionMap.get(messageId) === sessionId) {
+			result[messageId] = buffer[messageId]
+		}
+	}
+	return result
 }
 
 // ============================================================
@@ -55,9 +110,19 @@ function scheduleNotify(): void {
  */
 export function updateStreamingPart(part: Part): void {
 	const messageId = part.messageID
+	// Register the messageID -> sessionID mapping
+	const sessionId = (part as { sessionID?: string }).sessionID
+	if (sessionId) {
+		messageSessionMap.set(messageId, sessionId)
+	}
+
 	if (!buffer[messageId]) buffer[messageId] = {}
 	buffer[messageId][part.id] = part
-	scheduleNotify()
+
+	if (sessionId) {
+		dirtySessionIds.add(sessionId)
+		scheduleNotifySession(sessionId)
+	}
 }
 
 /**
@@ -101,22 +166,32 @@ export function getStreamingPart(messageId: string, partId: string): Part | unde
  * Returns the flushed parts as a flat array for batch upsert.
  */
 export function flushStreamingParts(): Part[] {
-	if (flushScheduled) {
-		clearTimeout(flushScheduled)
-		flushScheduled = undefined
+	// Cancel all pending per-session timers
+	for (const [, t] of sessionThrottle) {
+		if (t.scheduled) {
+			clearTimeout(t.scheduled)
+			t.scheduled = undefined
+		}
 	}
 
 	const allParts: Part[] = []
+	const affectedSessions = new Set<string>()
+
 	for (const messageId in buffer) {
+		const sid = messageSessionMap.get(messageId)
+		if (sid) affectedSessions.add(sid)
 		for (const partId in buffer[messageId]) {
 			allParts.push(buffer[messageId][partId])
 		}
 	}
 
 	buffer = {}
+	dirtySessionIds.clear()
 
-	// Notify React that streaming is cleared
-	appStore.set(streamingVersionAtom, (v) => v + 1)
+	// Notify affected sessions that streaming data has been flushed
+	for (const sid of affectedSessions) {
+		appStore.set(streamingVersionFamily(sid), (v) => v + 1)
+	}
 
 	return allParts
 }

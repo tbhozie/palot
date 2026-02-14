@@ -1,5 +1,5 @@
 import type { Message, Part } from "../../lib/types"
-import { getAllStreamingParts } from "../streaming"
+import { getStreamingPartsForSession } from "../streaming"
 
 // ============================================================
 // Types — wrappers around SDK Message + Part
@@ -90,15 +90,18 @@ export function groupIntoTurns(entries: ChatMessageEntry[], prevTurns: ChatTurn[
 /**
  * Merges streaming buffer overlays with base store parts for a given session.
  * This is used from useSessionChat to build ChatMessageEntry[] with streaming data merged.
+ *
+ * Now scoped by sessionId so only that session's streaming buffer is read,
+ * and uses the per-session streaming version for dependency tracking.
  */
 export function mergeSessionParts(
+	sessionId: string,
 	messages: Message[],
 	getParts: (messageId: string) => Part[],
-	streamingVersion: number,
+	_streamingVersion: number,
 ): ChatMessageEntry[] {
-	// streamingVersion is passed to establish dependency tracking
-	void streamingVersion
-	const streaming = getAllStreamingParts()
+	// _streamingVersion is passed to establish dependency tracking in the calling useMemo
+	const streaming = getStreamingPartsForSession(sessionId)
 
 	return messages.map((msg) => {
 		const baseParts = getParts(msg.id)
