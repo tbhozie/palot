@@ -40,26 +40,12 @@ jobs:
       - name: Cache Electron binaries
         uses: actions/cache@v4
         with:
-          path: ~/Library/Caches/electron
+          path: |
+            ~/Library/Caches/electron
+            ~/.cache/electron
+            ~/AppData/Local/electron/Cache
           key: electron-${{ runner.os }}-${{ hashFiles('apps/desktop/package.json') }}
           restore-keys: electron-${{ runner.os }}-
-        if: runner.os == 'macOS'
-
-      - name: Cache Electron binaries
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/electron
-          key: electron-${{ runner.os }}-${{ hashFiles('apps/desktop/package.json') }}
-          restore-keys: electron-${{ runner.os }}-
-        if: runner.os == 'Linux'
-
-      - name: Cache Electron binaries
-        uses: actions/cache@v4
-        with:
-          path: ~/AppData/Local/electron/Cache
-          key: electron-${{ runner.os }}-${{ hashFiles('apps/desktop/package.json') }}
-          restore-keys: electron-${{ runner.os }}-
-        if: runner.os == 'Windows'
 
       - name: Cache Turborepo
         uses: actions/cache@v4

@@ -3,8 +3,6 @@ name: Release
 on:
   push:
     branches: [main]
-    tags:
-      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -17,16 +15,21 @@ concurrency:
 
 jobs:
   # ──────────────────────────────────────────────
-  # Job 1: Changeset versioning (main push only)
+  # Job 1: Changeset versioning
   # ──────────────────────────────────────────────
+  # On push to main: if changesets are pending, creates a "Version Packages"
+  # PR. If no changesets are pending (i.e. the version PR was just merged),
+  # runs `changeset tag` and outputs published=true with the new version.
+  #
+  # On workflow_dispatch: always proceeds to build+release using the current
+  # version in package.json (useful for manual recovery or re-releases).
   changeset:
-    name: Changeset Version
-    if: github.ref == 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
+    name: Changeset
     runs-on: ubuntu-latest
     outputs:
-      published: ${{ steps.changesets.outputs.published }}
-      publishedPackages: ${{ steps.changesets.outputs.publishedPackages }}
-      hasChangesets: ${{ steps.changesets.outputs.hasChangesets }}
+      should-release: ${{ steps.decide.outputs.should-release }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -57,19 +60,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ──────────────────────────────────────────────
-  # Job 2: Create git tag after changeset publish
-  # ──────────────────────────────────────────────
-  create-tag:
-    name: Create Release Tag
-    needs: [changeset]
-    if: needs.changeset.outputs.published == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Get version from package.json
         id: version
         run: |
@@ -77,19 +67,26 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Create and push tag
+      - name: Decide whether to release
+        id: decide
         run: |
-          git tag ${{ steps.version.outputs.tag }}
-          git push origin ${{ steps.version.outputs.tag }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLISHED="${{ steps.changesets.outputs.published }}"
+          EVENT="${{ github.event_name }}"
+          if [[ "$PUBLISHED" == "true" || "$EVENT" == "workflow_dispatch" ]]; then
+            echo "should-release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should-release=false" >> "$GITHUB_OUTPUT"
+          fi
 
   # ──────────────────────────────────────────────
-  # Job 3: Cross-platform build & publish to draft
+  # Job 2: Cross-platform Electron build
   # ──────────────────────────────────────────────
-  release-build:
+  # Builds the app on all 3 platforms and uploads artifacts.
+  # Does NOT publish to GitHub Releases directly -- that happens in Job 3.
+  build:
     name: Build (${{ matrix.os }})
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [changeset]
+    if: needs.changeset.outputs.should-release == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -116,29 +113,15 @@ jobs:
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
 
-      - name: Cache Electron binaries (macOS)
+      - name: Cache Electron binaries
         uses: actions/cache@v4
         with:
-          path: ~/Library/Caches/electron
+          path: |
+            ~/Library/Caches/electron
+            ~/.cache/electron
+            ~/AppData/Local/electron/Cache
           key: electron-${{ runner.os }}-${{ hashFiles('apps/desktop/package.json') }}
           restore-keys: electron-${{ runner.os }}-
-        if: runner.os == 'macOS'
-
-      - name: Cache Electron binaries (Linux)
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/electron
-          key: electron-${{ runner.os }}-${{ hashFiles('apps/desktop/package.json') }}
-          restore-keys: electron-${{ runner.os }}-
-        if: runner.os == 'Linux'
-
-      - name: Cache Electron binaries (Windows)
-        uses: actions/cache@v4
-        with:
-          path: ~/AppData/Local/electron/Cache
-          key: electron-${{ runner.os }}-${{ hashFiles('apps/desktop/package.json') }}
-          restore-keys: electron-${{ runner.os }}-
-        if: runner.os == 'Windows'
 
       - name: Cache Turborepo
         uses: actions/cache@v4
@@ -156,11 +139,10 @@ jobs:
         run: bun run build
         working-directory: apps/desktop
 
-      - name: Package & publish to GitHub Release (draft)
-        run: bun run eb:${{ matrix.platform }} -- --publish always
+      - name: Package Electron app
+        run: bun run eb:${{ matrix.platform }}
         working-directory: apps/desktop
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
           # macOS notarization (uncomment when configured):
           # APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -169,7 +151,6 @@ jobs:
           # CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           # CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
 
-      # Keep artifacts as fallback in case publish fails
       - name: Upload artifacts (Linux)
         if: matrix.platform == 'linux'
         uses: actions/upload-artifact@v4
@@ -179,7 +160,6 @@ jobs:
             apps/desktop/release/*.AppImage
             apps/desktop/release/*.deb
             apps/desktop/release/*.rpm
-            apps/desktop/release/*.yml
           retention-days: 30
 
       - name: Upload artifacts (macOS)
@@ -190,7 +170,6 @@ jobs:
           path: |
             apps/desktop/release/*.dmg
             apps/desktop/release/*.zip
-            apps/desktop/release/*.yml
           retention-days: 30
 
       - name: Upload artifacts (Windows)
@@ -200,104 +179,94 @@ jobs:
           name: release-windows
           path: |
             apps/desktop/release/*.exe
-            apps/desktop/release/*.yml
           retention-days: 30
 
   # ──────────────────────────────────────────────
-  # Job 4: Promote draft → published release
+  # Job 3: Create GitHub Release
   # ──────────────────────────────────────────────
-  publish-release:
-    name: Publish GitHub Release
-    needs: [release-build]
-    if: startsWith(github.ref, 'refs/tags/v')
+  # Downloads all build artifacts, creates a git tag (if it doesn't exist),
+  # extracts the changelog, and publishes a GitHub Release with all binaries.
+  #
+  # Uses softprops/action-gh-release which is idempotent: re-running will
+  # update the existing release rather than fail.
+  release:
+    name: Publish Release
+    needs: [changeset, build]
+    if: needs.changeset.outputs.should-release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Get version info
-        id: version
-        run: |
-          TAG="${{ github.ref_name }}"
-          VERSION="${TAG#v}"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
-      - name: Extract changelog for this version
+      - name: Collect release files
+        run: |
+          mkdir -p release-files
+          find artifacts -type f \( \
+            -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" \
+            -o -name "*.dmg" -o -name "*.zip" \
+            -o -name "*.exe" \
+          \) -exec cp {} release-files/ \;
+          echo "Release files:"
+          ls -lh release-files/
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd release-files
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          cd ..
+
+      - name: Create git tag
+        run: |
+          TAG="${{ needs.changeset.outputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, skipping creation"
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
+            echo "Created and pushed tag $TAG"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract changelog
         id: changelog
         run: |
-          # Extract the changelog section for this version from CHANGELOG.md
+          VERSION="${{ needs.changeset.outputs.version }}"
           CHANGELOG_FILE="apps/desktop/CHANGELOG.md"
+          BODY=""
+
           if [ -f "$CHANGELOG_FILE" ]; then
             # Extract content between this version header and the next version header
-            CONTENT=$(awk '/^## ${{ steps.version.outputs.version }}$/,/^## [0-9]/' "$CHANGELOG_FILE" | head -n -1 | tail -n +2)
-            if [ -z "$CONTENT" ]; then
-              CONTENT="No changelog entry found for this version."
+            CONTENT=$(awk "/^## ${VERSION}$/,/^## [0-9]/" "$CHANGELOG_FILE" | head -n -1 | tail -n +2)
+            if [ -n "$CONTENT" ]; then
+              BODY="$CONTENT"
             fi
-          else
-            CONTENT="No changelog file found."
           fi
+
+          if [ -z "$BODY" ]; then
+            BODY="Release $VERSION"
+          fi
+
           # Write to file to avoid escaping issues
-          echo "$CONTENT" > /tmp/changelog.md
-          echo "has_changelog=true" >> "$GITHUB_OUTPUT"
+          echo "$BODY" > /tmp/release-notes.md
 
-      - name: Publish draft release
-        uses: actions/github-script@v7
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          script: |
-            const fs = require('fs');
-
-            const { data: releases } = await github.rest.repos.listReleases({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            });
-
-            const tag = '${{ steps.version.outputs.tag }}';
-            const draft = releases.find(
-              (r) => r.draft && r.tag_name === tag
-            );
-
-            if (!draft) {
-              core.setFailed(`No draft release found for tag ${tag}`);
-              return;
-            }
-
-            console.log(`Found draft release: ${draft.name} (${draft.id})`);
-            console.log(`Assets: ${draft.assets.map(a => a.name).join(', ')}`);
-
-            // Read changelog content
-            let body = '';
-            try {
-              const changelog = fs.readFileSync('/tmp/changelog.md', 'utf8').trim();
-              if (changelog && changelog !== 'No changelog entry found for this version.' && changelog !== 'No changelog file found.') {
-                body = `## What's Changed\n\n${changelog}`;
-              }
-            } catch (e) {
-              console.log('No changelog file found, using auto-generated notes');
-            }
-
-            // If no changeset changelog, fall back to auto-generated release notes
-            if (!body) {
-              const { data: generatedNotes } = await github.rest.repos.generateReleaseNotes({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag_name: tag,
-              });
-              body = generatedNotes.body;
-            }
-
-            const isPrerelease = '${{ steps.version.outputs.version }}'.includes('-');
-
-            await github.rest.repos.updateRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: draft.id,
-              draft: false,
-              prerelease: isPrerelease,
-              name: `Palot ${{ steps.version.outputs.version }}`,
-              body: body,
-              make_latest: isPrerelease ? 'false' : 'true',
-            });
-
-            console.log('Release published successfully!');
+          tag_name: ${{ needs.changeset.outputs.tag }}
+          name: Palot ${{ needs.changeset.outputs.version }}
+          body_path: /tmp/release-notes.md
+          draft: false
+          prerelease: ${{ contains(needs.changeset.outputs.version, '-') }}
+          files: |
+            release-files/*
+          make_latest: ${{ !contains(needs.changeset.outputs.version, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
