@@ -1,17 +1,16 @@
 import { createLogger } from "../../lib/logger"
 import { queryClient } from "../../lib/query-client"
-import type { Event, OpenCodeProject, QuestionRequest } from "../../lib/types"
+import type { Event } from "../../lib/types"
 import { serverConnectedAtom } from "../connection"
 import { discoveryAtom } from "../discovery"
 import { removeMessageAtom, upsertMessageAtom } from "../messages"
-import { removePartAtom, upsertPartAtom } from "../parts"
+import { applyPartDeltaAtom, removePartAtom, upsertPartAtom } from "../parts"
 import {
 	addPermissionAtom,
 	addQuestionAtom,
 	removePermissionAtom,
 	removeQuestionAtom,
 	removeSessionAtom,
-	type SessionError,
 	setSessionErrorAtom,
 	setSessionStatusAtom,
 	upsertSessionAtom,
@@ -51,45 +50,6 @@ function invalidateAllQueries(): void {
 export function processEvent(event: Event): void {
 	const { set } = appStore
 
-	// Handle question events first (not in SDK's Event discriminant)
-	const eventType = event.type as string
-	if (eventType === "question.asked") {
-		const props = (event as unknown as { properties: QuestionRequest }).properties
-		set(addQuestionAtom, { sessionId: props.sessionID, question: props })
-		return
-	}
-	if (eventType === "question.replied") {
-		const props = (event as unknown as { properties: { sessionID: string; requestID: string } })
-			.properties
-		set(removeQuestionAtom, { sessionId: props.sessionID, requestId: props.requestID })
-		return
-	}
-	if (eventType === "question.rejected") {
-		const props = (event as unknown as { properties: { sessionID: string; requestID: string } })
-			.properties
-		set(removeQuestionAtom, { sessionId: props.sessionID, requestId: props.requestID })
-		return
-	}
-	if (eventType === "global.disposed") {
-		invalidateAllQueries()
-		return
-	}
-
-	// Handle project.updated events (only in v2 SDK Event type, not in root SDK)
-	if (eventType === "project.updated") {
-		const project = (event as unknown as { properties: OpenCodeProject }).properties
-		if (project.id && project.worktree) {
-			const current = appStore.get(discoveryAtom)
-			const existing = current.projects.findIndex((p) => p.id === project.id)
-			const nextProjects =
-				existing >= 0
-					? current.projects.map((p, i) => (i === existing ? project : p))
-					: [...current.projects, project]
-			set(discoveryAtom, { ...current, projects: nextProjects })
-		}
-		return
-	}
-
 	switch (event.type) {
 		case "server.connected":
 			set(serverConnectedAtom, true)
@@ -99,6 +59,24 @@ export function processEvent(event: Event): void {
 			const directory = event.properties.directory
 			if (directory) {
 				invalidateDirectoryQueries(directory)
+			}
+			break
+		}
+
+		case "global.disposed":
+			invalidateAllQueries()
+			break
+
+		case "project.updated": {
+			const project = event.properties
+			if (project.id && project.worktree) {
+				const current = appStore.get(discoveryAtom)
+				const existing = current.projects.findIndex((p) => p.id === project.id)
+				const nextProjects =
+					existing >= 0
+						? current.projects.map((p, i) => (i === existing ? project : p))
+						: [...current.projects, project]
+				set(discoveryAtom, { ...current, projects: nextProjects })
 			}
 			break
 		}
@@ -134,29 +112,48 @@ export function processEvent(event: Event): void {
 			break
 
 		case "session.error": {
-			const sessionID = event.properties.sessionID
-			const error = event.properties.error
+			const { sessionID, error } = event.properties
 			if (sessionID && error) {
 				set(setSessionErrorAtom, {
 					sessionId: sessionID,
-					error: error as SessionError,
+					error: { name: error.name, data: error.data },
 				})
 			}
 			break
 		}
 
-		case "permission.updated":
+		case "permission.asked":
 			set(addPermissionAtom, {
 				sessionId: event.properties.sessionID,
-				// biome-ignore lint/suspicious/noExplicitAny: event properties are untyped from SSE
-				permission: event.properties as any,
+				permission: event.properties,
 			})
 			break
 
 		case "permission.replied":
 			set(removePermissionAtom, {
 				sessionId: event.properties.sessionID,
-				permissionId: event.properties.permissionID,
+				permissionId: event.properties.requestID,
+			})
+			break
+
+		case "question.asked":
+			set(addQuestionAtom, {
+				sessionId: event.properties.sessionID,
+				question: event.properties,
+			})
+			break
+
+		case "question.replied":
+			set(removeQuestionAtom, {
+				sessionId: event.properties.sessionID,
+				requestId: event.properties.requestID,
+			})
+			break
+
+		case "question.rejected":
+			set(removeQuestionAtom, {
+				sessionId: event.properties.sessionID,
+				requestId: event.properties.requestID,
 			})
 			break
 
@@ -173,6 +170,15 @@ export function processEvent(event: Event): void {
 
 		case "message.part.updated":
 			set(upsertPartAtom, event.properties.part)
+			break
+
+		case "message.part.delta":
+			set(applyPartDeltaAtom, {
+				messageId: event.properties.messageID,
+				partId: event.properties.partID,
+				field: event.properties.field,
+				delta: event.properties.delta,
+			})
 			break
 
 		case "message.part.removed":

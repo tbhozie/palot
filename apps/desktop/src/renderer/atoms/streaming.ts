@@ -109,20 +109,44 @@ export function getStreamingPartsForSession(
  * Called by connection-manager on every text/reasoning SSE event.
  */
 export function updateStreamingPart(part: Part): void {
-	const messageId = part.messageID
+	const { messageID, sessionID } = part
 	// Register the messageID -> sessionID mapping
-	const sessionId = (part as { sessionID?: string }).sessionID
-	if (sessionId) {
-		messageSessionMap.set(messageId, sessionId)
-	}
+	messageSessionMap.set(messageID, sessionID)
 
-	if (!buffer[messageId]) buffer[messageId] = {}
-	buffer[messageId][part.id] = part
+	if (!buffer[messageID]) buffer[messageID] = {}
+	buffer[messageID][part.id] = part
 
-	if (sessionId) {
-		dirtySessionIds.add(sessionId)
-		scheduleNotifySession(sessionId)
-	}
+	dirtySessionIds.add(sessionID)
+	scheduleNotifySession(sessionID)
+}
+
+/**
+ * Apply a string delta to a field of an existing part in the streaming buffer.
+ * Used for incremental text/reasoning updates (message.part.delta events).
+ * Returns true if the delta was applied, false if the part was not found.
+ */
+export function applyStreamingDelta(
+	messageId: string,
+	partId: string,
+	field: string,
+	delta: string,
+	sessionId: string,
+): boolean {
+	messageSessionMap.set(messageId, sessionId)
+
+	const msgParts = buffer[messageId]
+	if (!msgParts?.[partId]) return false
+
+	const part = msgParts[partId]
+	// Part is a discriminated union; the server sends the field name as a plain string.
+	const record = part as Record<string, unknown>
+	const existing = record[field]
+	// Create a shallow copy with the appended field value
+	msgParts[partId] = { ...part, [field]: (typeof existing === "string" ? existing : "") + delta }
+
+	dirtySessionIds.add(sessionId)
+	scheduleNotifySession(sessionId)
+	return true
 }
 
 /**
@@ -130,6 +154,13 @@ export function updateStreamingPart(part: Part): void {
  */
 export function isStreamingPartType(part: Part): boolean {
 	return part.type === "text" || part.type === "reasoning"
+}
+
+/**
+ * Check if a field name corresponds to a streamable text field.
+ */
+export function isStreamingField(field: string): boolean {
+	return field === "content" || field === "text" || field === "reasoning"
 }
 
 /**

@@ -87,6 +87,37 @@ export const batchUpsertPartsAtom = atom(null, (get, set, parts: Part[]) => {
 	}
 })
 
+/** Apply a string delta to a specific field of an existing part */
+export const applyPartDeltaAtom = atom(
+	null,
+	(
+		get,
+		set,
+		args: {
+			messageId: string
+			partId: string
+			field: string
+			delta: string
+		},
+	) => {
+		const existing = get(partsFamily(args.messageId))
+		if (!existing || existing.length === 0) return
+		const result = binarySearch(existing, args.partId, (p) => p.id)
+		if (!result.found) return
+		const part = existing[result.index]
+		// Part is a discriminated union; the server sends the field name as a plain string.
+		// We read the current value and append the delta, defaulting to empty string.
+		const record = part as Record<string, unknown>
+		const current = record[args.field]
+		const updated = existing.slice()
+		updated[result.index] = {
+			...part,
+			[args.field]: (typeof current === "string" ? current : "") + args.delta,
+		}
+		set(partsFamily(args.messageId), updated)
+	},
+)
+
 /** Remove a part from a message */
 export const removePartAtom = atom(
 	null,

@@ -4,7 +4,13 @@ import { authHeaderAtom, serverConnectedAtom, serverUrlAtom } from "../atoms/con
 import { batchUpsertPartsAtom } from "../atoms/parts"
 import { setSessionsAtom } from "../atoms/sessions"
 import { appStore } from "../atoms/store"
-import { flushStreamingParts, isStreamingPartType, updateStreamingPart } from "../atoms/streaming"
+import {
+	applyStreamingDelta,
+	flushStreamingParts,
+	isStreamingField,
+	isStreamingPartType,
+	updateStreamingPart,
+} from "../atoms/streaming"
 import { createLogger } from "../lib/logger"
 import type { Event } from "../lib/types"
 import {
@@ -273,6 +279,8 @@ function coalescingKey(event: Event): string | undefined {
 			const part = event.properties.part
 			return `part:${part.messageID}:${part.id}`
 		}
+		case "message.part.delta":
+			return `part:${event.properties.messageID}:${event.properties.partID}`
 		case "session.status":
 			return `status:${event.properties.sessionID}`
 		default:
@@ -316,6 +324,27 @@ function createEventBatcher() {
 					flush()
 				}
 				return
+			}
+		}
+
+		// Fast path: route incremental text/reasoning deltas to streaming buffer
+		if (event.type === "message.part.delta") {
+			const { messageID, partID, field, delta, sessionID } = event.properties
+			if (isStreamingField(field)) {
+				const applied = applyStreamingDelta(messageID, partID, field, delta, sessionID)
+				if (applied) {
+					const key = coalescingKey(event)
+					if (key) coalesced.set(key, event)
+					if (scheduled !== undefined) return
+					const elapsed = performance.now() - lastFlush
+					if (elapsed < FRAME_BUDGET_MS) {
+						scheduled = requestAnimationFrame(flush)
+					} else {
+						flush()
+					}
+					return
+				}
+				// Part not in streaming buffer yet, fall through to normal processing
 			}
 		}
 
