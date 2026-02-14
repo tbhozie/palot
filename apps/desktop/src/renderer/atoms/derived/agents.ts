@@ -132,6 +132,55 @@ function buildProjectSlugMap(projects: ProjectEntry[]): Map<string, { id: string
 	return result
 }
 
+// ============================================================
+// Sandbox (worktree) directory mapping
+// ============================================================
+
+/**
+ * Builds a set of all sandbox directories across all discovered projects.
+ * A "sandbox" is a worktree directory that belongs to a parent project.
+ * These should not appear as top-level projects in the sidebar.
+ */
+function buildSandboxDirSet(projects: OpenCodeProject[]): Set<string> {
+	const sandboxDirs = new Set<string>()
+	for (const project of projects) {
+		if (project.sandboxes) {
+			for (const dir of project.sandboxes) {
+				sandboxDirs.add(dir)
+			}
+		}
+	}
+	return sandboxDirs
+}
+
+/**
+ * Builds a map from sandbox directory -> parent project worktree directory.
+ * Used to remap sessions running in a sandbox back to their parent project.
+ */
+function buildSandboxToParentMap(projects: OpenCodeProject[]): Map<string, string> {
+	const map = new Map<string, string>()
+	for (const project of projects) {
+		if (!project.worktree || !project.sandboxes) continue
+		for (const dir of project.sandboxes) {
+			map.set(dir, project.worktree)
+		}
+	}
+	return map
+}
+
+/**
+ * Builds a map from parent project directory -> set of its sandbox directories.
+ * Used by projectSessionIdsFamily to include sandbox sessions under the parent.
+ */
+function buildParentToSandboxesMap(projects: OpenCodeProject[]): Map<string, Set<string>> {
+	const map = new Map<string, Set<string>>()
+	for (const project of projects) {
+		if (!project.worktree || !project.sandboxes?.length) continue
+		map.set(project.worktree, new Set(project.sandboxes))
+	}
+	return map
+}
+
 function collectAllProjects(
 	liveSessionDirs: Map<string, string>,
 	discovery: {
@@ -142,10 +191,14 @@ function collectAllProjects(
 	const entries: ProjectEntry[] = []
 	const seenDirs = new Set<string>()
 
-	// Discovery projects (from API)
+	// Build sandbox set to filter out worktree projects
+	const sandboxDirs = discovery.loaded ? buildSandboxDirSet(discovery.projects) : new Set<string>()
+
+	// Discovery projects (from API), excluding sandboxes
 	if (discovery.loaded) {
 		for (const project of discovery.projects) {
 			if (!project.worktree || seenDirs.has(project.worktree)) continue
+			if (sandboxDirs.has(project.worktree)) continue
 			seenDirs.add(project.worktree)
 			entries.push({
 				id: project.id,
@@ -155,10 +208,12 @@ function collectAllProjects(
 		}
 	}
 
-	// Live session directories (may include directories not in any project)
+	// Live session directories (may include directories not in any project).
+	// Skip directories that are sandboxes of a known project.
 	for (const [, directory] of liveSessionDirs) {
 		if (seenDirs.has(directory)) continue
 		if (!directory) continue
+		if (sandboxDirs.has(directory)) continue
 		seenDirs.add(directory)
 		let hash = 0
 		for (let i = 0; i < directory.length; i++) {
@@ -175,8 +230,32 @@ function collectAllProjects(
 }
 
 // ============================================================
-// Derived atom: project slug map (shared by agentsAtom + agentFamily)
+// Derived atoms: sandbox mappings + project slug map
 // ============================================================
+
+/**
+ * Derived atom that computes sandbox directory mappings from discovery data.
+ * Only recomputes when discovery changes (loaded once per connection).
+ *
+ * - `sandboxToParent`: maps sandbox dir -> parent project dir
+ * - `parentToSandboxes`: maps parent project dir -> set of sandbox dirs
+ *
+ * Used by projectSessionIdsFamily (to absorb sandbox sessions into parent)
+ * and agentFamily (to remap project name/slug for sandbox sessions).
+ */
+export const sandboxMappingsAtom = atom((get) => {
+	const discovery = get(discoveryAtom)
+	if (!discovery.loaded) {
+		return {
+			sandboxToParent: new Map<string, string>(),
+			parentToSandboxes: new Map<string, Set<string>>(),
+		}
+	}
+	return {
+		sandboxToParent: buildSandboxToParentMap(discovery.projects),
+		parentToSandboxes: buildParentToSandboxesMap(discovery.projects),
+	}
+})
 
 /**
  * Lightweight derived atom that maps directory -> { id, slug }.
@@ -217,12 +296,18 @@ export const agentFamily = atomFamily((sessionId: string) => {
 		}
 
 		const slugMap = get(projectSlugMapAtom)
+		const { sandboxToParent } = get(sandboxMappingsAtom)
 		const metrics = get(sessionMetricsFamily(sessionId))
 		const { session, status, permissions, questions, directory } = entry
-		const projectInfo = slugMap.get(directory)
 		const agentStatus = deriveAgentStatus(status, permissions.length > 0, questions.length > 0)
 		const created = session.time.created
 		const lastActiveAt = session.time.updated ?? session.time.created
+
+		// If this session's directory is a sandbox (worktree), resolve the parent
+		// project directory for name/slug display so it groups visually under the parent.
+		const parentDir = sandboxToParent.get(directory)
+		const displayDir = parentDir ?? directory
+		const projectInfo = slugMap.get(displayDir)
 
 		const next: Agent = {
 			id: session.id,
@@ -230,8 +315,8 @@ export const agentFamily = atomFamily((sessionId: string) => {
 			name: session.title || "Untitled",
 			status: agentStatus,
 			environment: "local" as const,
-			project: projectNameFromDir(directory),
-			projectSlug: projectInfo?.slug ?? projectNameFromDir(directory),
+			project: projectNameFromDir(displayDir),
+			projectSlug: projectInfo?.slug ?? projectNameFromDir(displayDir),
 			directory,
 			branch: entry.branch ?? "",
 			duration: formatRelativeTime(lastActiveAt),
@@ -324,6 +409,9 @@ export const agentsAtom = (() => {
  * Keyed by directory path. Each ProjectFolder subscribes to its own family
  * member, so adding/removing sessions in project A does not re-render project B.
  *
+ * Also includes sessions running in sandbox (worktree) directories that belong
+ * to this project, so worktree sessions appear under the parent project.
+ *
  * Uses structural equality on the array to avoid unnecessary re-renders
  * when the same set of IDs is returned.
  */
@@ -332,12 +420,18 @@ export const projectSessionIdsFamily = atomFamily((directory: string) => {
 	return atom((get) => {
 		const sessionIds = get(sessionIdsAtom)
 		const showSubAgents = get(showSubAgentsAtom)
+		const { parentToSandboxes } = get(sandboxMappingsAtom)
+
+		// Directories that belong to this project: the project dir itself + its sandboxes
+		const sandboxes = parentToSandboxes.get(directory)
+
 		const ids: string[] = []
 		for (const id of sessionIds) {
 			const entry = get(sessionFamily(id))
 			if (!entry) continue
-			if (entry.directory !== directory) continue
 			if (!showSubAgents && entry.session.parentID) continue
+			// Match the project directory itself, or any of its sandbox directories
+			if (entry.directory !== directory && !sandboxes?.has(entry.directory)) continue
 			ids.push(id)
 		}
 		// Structural equality: return previous array if contents are the same
@@ -380,17 +474,21 @@ export const projectListAtom = (() => {
 		const discovery = get(discoveryAtom)
 		const showSubAgents = get(showSubAgentsAtom)
 		const slugMap = get(projectSlugMapAtom)
+		const { sandboxToParent } = get(sandboxMappingsAtom)
 
 		const projects = new Map<string, SidebarProject>()
 
-		// Live sessions grouped by directory
+		// Live sessions grouped by directory.
+		// Sessions in sandbox directories are counted under their parent project.
 		for (const id of sessionIds) {
 			const entry = get(sessionFamily(id))
 			if (!entry) continue
 			if (!showSubAgents && entry.session.parentID) continue
 			if (!entry.directory) continue
 
-			const dir = entry.directory
+			// Remap sandbox directories to their parent project
+			const parentDir = sandboxToParent.get(entry.directory)
+			const dir = parentDir ?? entry.directory
 			const projectInfo = slugMap.get(dir)
 			const name = projectNameFromDir(dir)
 			const t = entry.session.time.updated ?? entry.session.time.created ?? 0
@@ -411,12 +509,19 @@ export const projectListAtom = (() => {
 			}
 		}
 
+		// Build sandbox set to filter out worktree projects from discovery
+		const sandboxDirs = discovery.loaded
+			? buildSandboxDirSet(discovery.projects)
+			: new Set<string>()
+
 		// Discovered projects from API that have no live sessions yet
-		// (show them in sidebar so users can start new agents)
+		// (show them in sidebar so users can start new agents).
+		// Skip sandbox projects -- they belong under their parent.
 		if (discovery.loaded) {
 			for (const project of discovery.projects) {
 				if (!project.worktree) continue
 				if (projects.has(project.worktree)) continue
+				if (sandboxDirs.has(project.worktree)) continue
 
 				const projectInfo = slugMap.get(project.worktree)
 				const name = project.name ?? projectNameFromDir(project.worktree)
