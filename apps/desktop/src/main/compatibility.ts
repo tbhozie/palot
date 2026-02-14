@@ -19,9 +19,9 @@ const log = createLogger("compatibility")
 
 export const OPENCODE_COMPAT = {
 	/** Minimum version required for core functionality. Below this: block. */
-	min: "0.1.80",
+	min: "1.2.0",
 	/** Highest version actively tested. Above this: warn (not block). */
-	recommended: "1.0.0",
+	recommended: "1.2.0",
 	/** Known-broken versions. These are hard-blocked with a specific message. */
 	blocked: [] as string[],
 }

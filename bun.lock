@@ -22,7 +22,7 @@
         "@fontsource-variable/inter": "^5.2.8",
         "@fontsource/ibm-plex-mono": "^5.2.7",
         "@libsql/client": "^0.17.0",
-        "@opencode-ai/sdk": "^1.1.53",
+        "@opencode-ai/sdk": "^1.2.1",
         "@palot/configconv": "workspace:*",
         "@palot/ui": "workspace:*",
         "@tanstack/react-query": "^5.90.20",
@@ -73,7 +73,7 @@
       "name": "@palot/server",
       "version": "0.2.0",
       "dependencies": {
-        "@opencode-ai/sdk": "^1.1.53",
+        "@opencode-ai/sdk": "^1.2.1",
         "hono": "4.11.9",
       },
       "devDependencies": {
@@ -85,7 +85,7 @@
       "name": "@palot/configconv",
       "version": "0.1.0",
       "dependencies": {
-        "@opencode-ai/sdk": "^1.1.53",
+        "@opencode-ai/sdk": "^1.2.1",
         "jsonc-parser": "^3.3.1",
         "yaml": "^2.7.1",
         "zod": "^3.24.4",
@@ -603,7 +603,7 @@
 
     "@open-draft/until": ["@open-draft/until@2.1.0", "", {}, "sha512-U69T3ItWHvLwGg5eJ0n3I62nWuE6ilHlmz7zM0npLBRvPRd7e6NYmg54vvRtP5mZG7kZqZCFVdsTWo7BPtBujg=="],
 
-    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.1.53", "", {}, "sha512-RUIVnPOP1CyyU32FrOOYuE7Ge51lOBuhaFp2NSX98ncApT7ffoNetmwzqrhOiJQgZB1KrbCHLYOCK6AZfacxag=="],
+    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.2.1", "", {}, "sha512-K5e15mIXTyAykBw0GX+8O28IJHlPMw1jI/m3SDu+hgUHjmg2refqLPqyuqv8hE2nRcuGi8HajhpDJjkO7H2S0A=="],
 
     "@opentelemetry/api": ["@opentelemetry/api@1.9.0", "", {}, "sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg=="],
 
