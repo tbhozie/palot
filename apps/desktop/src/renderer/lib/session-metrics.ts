@@ -355,6 +355,199 @@ export function computeSessionMetricsExtended(
 }
 
 // ============================================================
+// Context window usage (last message vs. model limit)
+// ============================================================
+
+export interface ContextUsage {
+	/** Total tokens from the last assistant message */
+	lastMessageTokens: number
+	/** Model context window limit (from provider data) */
+	contextLimit: number
+	/** Usage percentage 0-100 */
+	percentage: number
+	/** Provider ID of the last assistant message */
+	providerID: string
+	/** Model ID of the last assistant message */
+	modelID: string
+}
+
+/**
+ * Compute context window usage from the **last** assistant message that has
+ * token data. This reflects the current state of the context window (how
+ * full it is right now), NOT the cumulative session total.
+ *
+ * Returns `null` if there are no assistant messages with tokens, or if
+ * the model's context limit is unavailable.
+ *
+ * @param messages - All messages in the session
+ * @param getContextLimit - Callback to look up a model's context limit
+ *   given `(providerID, modelID)`. Returns `undefined` if unknown.
+ */
+export function computeContextUsage(
+	messages: Message[],
+	getContextLimit: (providerID: string, modelID: string) => number | undefined,
+): ContextUsage | null {
+	// Find the last assistant message with token data (walking backwards)
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const msg = messages[i]
+		if (msg.role !== "assistant") continue
+		const t = msg.tokens
+		if (!t) continue
+
+		const total =
+			(t.input ?? 0) +
+			(t.output ?? 0) +
+			(t.reasoning ?? 0) +
+			(t.cache?.read ?? 0) +
+			(t.cache?.write ?? 0)
+		if (total <= 0) continue
+
+		const limit = getContextLimit(msg.providerID, msg.modelID)
+		if (!limit || limit <= 0) return null
+
+		return {
+			lastMessageTokens: total,
+			contextLimit: limit,
+			percentage: Math.round((total / limit) * 100),
+			providerID: msg.providerID,
+			modelID: msg.modelID,
+		}
+	}
+	return null
+}
+
+// ============================================================
+// Context breakdown estimation
+// ============================================================
+
+export type ContextBreakdownKey = "system" | "user" | "assistant" | "tool" | "other"
+
+export interface ContextBreakdownSegment {
+	key: ContextBreakdownKey
+	tokens: number
+	/** Width percentage 0-100 (for rendering a stacked bar) */
+	width: number
+	/** Display percentage rounded to 1 decimal */
+	percent: number
+}
+
+/** Rough estimate: ~4 chars per token (same heuristic as opencode). */
+const estimateTokens = (chars: number) => Math.ceil(chars / 4)
+
+/**
+ * Estimate a breakdown of input tokens by role: system, user, assistant,
+ * tool, and other (unaccounted overhead like formatting/framing tokens).
+ *
+ * This is a rough heuristic based on character count of message parts.
+ * It will never be exact, but gives users a useful visual sense of what
+ * is consuming their context window.
+ *
+ * @param messages - All messages in the session
+ * @param parts - Map of messageId -> Part[]
+ * @param inputTokens - Actual input token count from the last assistant message
+ * @param systemPromptChars - Character length of the system prompt (if known)
+ */
+export function estimateContextBreakdown(
+	messages: Message[],
+	parts: Record<string, Part[] | undefined>,
+	inputTokens: number,
+	systemPromptChars?: number,
+): ContextBreakdownSegment[] {
+	if (!inputTokens || inputTokens <= 0) return []
+
+	// Accumulate character counts per role
+	const counts = { system: systemPromptChars ?? 0, user: 0, assistant: 0, tool: 0 }
+
+	for (const msg of messages) {
+		const msgParts = parts[msg.id]
+		if (!msgParts) continue
+
+		if (msg.role === "user") {
+			for (const part of msgParts) {
+				if (part.type === "text") counts.user += part.text.length
+				else if (part.type === "file" && part.source && "text" in part.source) {
+					counts.user += part.source.text.value.length
+				} else if (part.type === "agent" && part.source) {
+					counts.user += part.source.value.length
+				}
+			}
+		} else if (msg.role === "assistant") {
+			for (const part of msgParts) {
+				if (part.type === "text") {
+					counts.assistant += part.text.length
+				} else if (part.type === "reasoning") {
+					counts.assistant += part.text.length
+				} else if (part.type === "tool") {
+					const inputLen = Object.keys(part.state.input).length * 16
+					if (part.state.status === "completed") {
+						counts.tool += inputLen + part.state.output.length
+					} else if (part.state.status === "error") {
+						counts.tool += inputLen + part.state.error.length
+					} else if (part.state.status === "pending") {
+						counts.tool += inputLen + part.state.raw.length
+					} else {
+						counts.tool += inputLen
+					}
+				}
+			}
+		}
+	}
+
+	// Convert char counts to estimated tokens
+	const tokens = {
+		system: estimateTokens(counts.system),
+		user: estimateTokens(counts.user),
+		assistant: estimateTokens(counts.assistant),
+		tool: estimateTokens(counts.tool),
+	}
+	const estimated = tokens.system + tokens.user + tokens.assistant + tokens.tool
+
+	// Scale to match the actual input token count, or distribute "other" for the gap
+	const build = (t: {
+		system: number
+		user: number
+		assistant: number
+		tool: number
+		other: number
+	}): ContextBreakdownSegment[] => {
+		const toPercent = (v: number) => (v / inputTokens) * 100
+		const toPercentLabel = (v: number) => Math.round(toPercent(v) * 10) / 10
+
+		return (
+			[
+				{ key: "system" as const, tokens: t.system },
+				{ key: "user" as const, tokens: t.user },
+				{ key: "assistant" as const, tokens: t.assistant },
+				{ key: "tool" as const, tokens: t.tool },
+				{ key: "other" as const, tokens: t.other },
+			] satisfies { key: ContextBreakdownKey; tokens: number }[]
+		)
+			.filter((x) => x.tokens > 0)
+			.map((x) => ({
+				key: x.key,
+				tokens: x.tokens,
+				width: toPercent(x.tokens),
+				percent: toPercentLabel(x.tokens),
+			}))
+	}
+
+	if (estimated <= inputTokens) {
+		return build({ ...tokens, other: inputTokens - estimated })
+	}
+
+	// Estimated exceeds actual: scale everything down proportionally
+	const scale = inputTokens / estimated
+	const scaled = {
+		system: Math.floor(tokens.system * scale),
+		user: Math.floor(tokens.user * scale),
+		assistant: Math.floor(tokens.assistant * scale),
+		tool: Math.floor(tokens.tool * scale),
+	}
+	const total = scaled.system + scaled.user + scaled.assistant + scaled.tool
+	return build({ ...scaled, other: Math.max(0, inputTokens - total) })
+}
+
+// ============================================================
 // Formatters
 // ============================================================
 

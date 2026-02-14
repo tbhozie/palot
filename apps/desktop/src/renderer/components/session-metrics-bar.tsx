@@ -1,10 +1,12 @@
 /**
  * Compact session metrics bar for the agent-detail app bar.
  *
- * Shows work time, cost, tokens (with breakdown tooltip), turn count,
- * model distribution, cache efficiency, and error/retry indicators.
+ * Shows context window usage, work time, cost, tokens (with breakdown
+ * tooltip), turn count, model distribution, cache efficiency, and
+ * error/retry indicators.
  */
 import { Tooltip, TooltipContent, TooltipTrigger } from "@palot/ui/components/tooltip"
+import { cn } from "@palot/ui/lib/utils"
 import { useAtomValue } from "jotai"
 import {
 	AlertTriangleIcon,
@@ -15,9 +17,18 @@ import {
 	WrenchIcon,
 	ZapIcon,
 } from "lucide-react"
-import { Fragment, memo, useEffect, useState } from "react"
+import { Fragment, memo, useCallback, useEffect, useMemo, useState } from "react"
 import { sessionMetricsFamily } from "../atoms/derived/session-metrics"
-import { formatTokens, formatWorkDuration } from "../lib/session-metrics"
+import { messagesFamily } from "../atoms/messages"
+import type { ProvidersData } from "../hooks/use-opencode-data"
+import {
+	type ContextUsage,
+	computeContextUsage,
+	formatPercentage,
+	formatTokens,
+	formatWorkDuration,
+	shortModelName,
+} from "../lib/session-metrics"
 
 // ============================================================
 // Tool category display labels
@@ -40,6 +51,8 @@ const TOOL_CATEGORY_LABELS: Record<string, string> = {
 
 interface SessionMetricsBarProps {
 	sessionId: string
+	/** Provider data for context limit lookup (optional, degrades gracefully) */
+	providers?: ProvidersData | null
 }
 
 /**
@@ -48,8 +61,29 @@ interface SessionMetricsBarProps {
  */
 export const SessionMetricsBar = memo(function SessionMetricsBar({
 	sessionId,
+	providers,
 }: SessionMetricsBarProps) {
 	const metrics = useAtomValue(sessionMetricsFamily(sessionId))
+	const messages = useAtomValue(messagesFamily(sessionId))
+
+	// Build a stable context-limit lookup from provider data
+	const getContextLimit = useCallback(
+		(providerID: string, modelID: string): number | undefined => {
+			if (!providers?.providers) return undefined
+			for (const provider of providers.providers) {
+				if (provider.id !== providerID) continue
+				const model = provider.models[modelID]
+				if (model?.limit?.context) return model.limit.context
+			}
+			return undefined
+		},
+		[providers],
+	)
+
+	const contextUsage = useMemo(
+		() => computeContextUsage(messages, getContextLimit),
+		[messages, getContextLimit],
+	)
 
 	if (metrics.exchangeCount === 0 && metrics.assistantMessageCount === 0) return null
 
@@ -57,6 +91,10 @@ export const SessionMetricsBar = memo(function SessionMetricsBar({
 
 	return (
 		<div className="flex items-center gap-1.5">
+			{/* Context window usage */}
+			{contextUsage && <ContextUsageIndicator usage={contextUsage} cost={metrics.cost} />}
+			{contextUsage && <Separator />}
+
 			{/* Work time */}
 			<Tooltip>
 				<TooltipTrigger
@@ -122,7 +160,7 @@ export const SessionMetricsBar = memo(function SessionMetricsBar({
 						</TooltipTrigger>
 						<TooltipContent side="bottom" align="end">
 							<div className="space-y-1.5 text-xs">
-								<p className="font-medium">Token Breakdown</p>
+								<p className="font-medium">Token Breakdown (Session Total)</p>
 								<div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-background/60">
 									<span>Input</span>
 									<span className="text-right tabular-nums">{formatTokens(raw.tokens.input)}</span>
@@ -310,6 +348,119 @@ function LiveWorkTime({
 	}, [completedMs, activeStartMs])
 
 	return <>{display}</>
+}
+
+// ============================================================
+// Context window usage indicator
+// ============================================================
+
+/**
+ * Compact circular progress + percentage showing how full the context window is.
+ * Tooltip shows detailed info: token count, limit, model, and cost.
+ */
+const ContextUsageIndicator = memo(function ContextUsageIndicator({
+	usage,
+	cost,
+}: {
+	usage: ContextUsage
+	cost: string
+}) {
+	const pct = usage.percentage
+	const color =
+		pct >= 90 ? "text-red-400" : pct >= 70 ? "text-yellow-400" : "text-muted-foreground/60"
+
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<span className={cn("inline-flex items-center gap-1 text-xs tabular-nums", color)} />
+				}
+			>
+				<ContextCircle percentage={pct} size={14} strokeWidth={2} />
+				{formatPercentage(pct)}
+			</TooltipTrigger>
+			<TooltipContent side="bottom" align="start">
+				<div className="space-y-1.5 text-xs">
+					<p className="font-medium">Context Window</p>
+					<div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-background/60">
+						<span>Usage</span>
+						<span className="text-right tabular-nums">{formatPercentage(pct)}</span>
+						<span>Tokens</span>
+						<span className="text-right tabular-nums">
+							{usage.lastMessageTokens.toLocaleString()}
+						</span>
+						<span>Limit</span>
+						<span className="text-right tabular-nums">{usage.contextLimit.toLocaleString()}</span>
+						<span>Model</span>
+						<span className="text-right">{shortModelName(usage.modelID)}</span>
+					</div>
+					{cost !== "$0.00" && (
+						<p className="border-t border-background/15 pt-1 text-background/60">
+							Session cost: {cost}
+						</p>
+					)}
+				</div>
+			</TooltipContent>
+		</Tooltip>
+	)
+})
+
+// ============================================================
+// SVG circular progress
+// ============================================================
+
+/**
+ * Tiny SVG circle that fills clockwise based on percentage.
+ * Uses stroke-dasharray/dashoffset for the arc.
+ */
+function ContextCircle({
+	percentage,
+	size = 14,
+	strokeWidth = 2,
+}: {
+	percentage: number
+	size?: number
+	strokeWidth?: number
+}) {
+	const radius = (size - strokeWidth) / 2
+	const circumference = 2 * Math.PI * radius
+	const offset = circumference - (Math.min(percentage, 100) / 100) * circumference
+
+	const strokeColor =
+		percentage >= 90 ? "stroke-red-400" : percentage >= 70 ? "stroke-yellow-400" : "stroke-current"
+
+	return (
+		<svg
+			width={size}
+			height={size}
+			viewBox={`0 0 ${size} ${size}`}
+			className="shrink-0"
+			aria-hidden="true"
+		>
+			{/* Background track */}
+			<circle
+				cx={size / 2}
+				cy={size / 2}
+				r={radius}
+				fill="none"
+				className="stroke-muted-foreground/15"
+				strokeWidth={strokeWidth}
+			/>
+			{/* Filled arc */}
+			<circle
+				cx={size / 2}
+				cy={size / 2}
+				r={radius}
+				fill="none"
+				className={strokeColor}
+				strokeWidth={strokeWidth}
+				strokeDasharray={circumference}
+				strokeDashoffset={offset}
+				strokeLinecap="round"
+				transform={`rotate(-90 ${size / 2} ${size / 2})`}
+			/>
+		</svg>
+	)
 }
 
 // ============================================================
