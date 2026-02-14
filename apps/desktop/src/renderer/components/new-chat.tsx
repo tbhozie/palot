@@ -472,7 +472,7 @@ export function NewChat() {
 									type="button"
 									onClick={() => handleLaunch(suggestion.text)}
 									disabled={launching || !selectedDirectory}
-									className="group/card flex flex-col gap-3 rounded-xl border border-border bg-background p-4 text-left transition-colors hover:border-muted-foreground/30 hover:bg-muted/50 disabled:opacity-50"
+									className="group/card flex flex-col gap-3 rounded-xl border border-border/50 bg-background/40 backdrop-blur-sm p-4 text-left transition-colors hover:border-muted-foreground/30 hover:bg-background/60 disabled:opacity-50"
 								>
 									<Icon className="size-5 text-muted-foreground transition-colors group-hover/card:text-foreground" />
 									<p className="text-sm leading-snug text-muted-foreground transition-colors group-hover/card:text-foreground">
