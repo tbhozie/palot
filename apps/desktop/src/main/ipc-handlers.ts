@@ -47,7 +47,7 @@ import {
 	scanProvider,
 } from "./onboarding"
 import { getOpenInTargets, openInTarget, setPreferredTarget } from "./open-in-targets"
-import { ensureServer, getServerUrl, stopServer } from "./opencode-manager"
+import { ensureServer, getServerUrl, restartServer, stopServer } from "./opencode-manager"
 import { getOpaqueWindows, getSettings, onSettingsChanged, updateSettings } from "./settings-store"
 import { checkForUpdates, downloadUpdate, getUpdateState, installUpdate } from "./updater"
 
@@ -155,6 +155,11 @@ export function registerIpcHandlers(): void {
 	ipcMain.handle(
 		"opencode:stop",
 		withLogging("opencode:stop", () => stopServer()),
+	)
+
+	ipcMain.handle(
+		"opencode:restart",
+		withLogging("opencode:restart", async () => await restartServer()),
 	)
 
 	// --- Model state ---

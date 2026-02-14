@@ -40,6 +40,9 @@ contextBridge.exposeInMainWorld("palot", {
 	/** Stops the managed OpenCode server. */
 	stopOpenCode: () => ipcRenderer.invoke("opencode:stop"),
 
+	/** Restarts the managed OpenCode server (stops and re-starts with current settings). */
+	restartOpenCode: () => ipcRenderer.invoke("opencode:restart"),
+
 	// --- Credential storage (safeStorage-backed) ---
 
 	credential: {

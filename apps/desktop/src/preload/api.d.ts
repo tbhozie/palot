@@ -117,6 +117,12 @@ export interface LocalServerConfig {
 	id: "local"
 	name: string
 	type: "local"
+	/** Hostname the local server binds to (default "127.0.0.1"). Use "0.0.0.0" to expose on the network. */
+	hostname?: string
+	/** Port the local server listens on (default 4101). */
+	port?: number
+	/** Whether a password is configured for the local server (stored in safeStorage). */
+	hasPassword?: boolean
 }
 
 /** Remote server reachable over HTTP(S). */
@@ -394,6 +400,7 @@ export interface PalotAPI {
 	ensureOpenCode: () => Promise<OpenCodeServerInfo>
 	getServerUrl: () => Promise<string | null>
 	stopOpenCode: () => Promise<boolean>
+	restartOpenCode: () => Promise<OpenCodeServerInfo>
 	getModelState: () => Promise<ModelState>
 	updateModelRecent: (model: ModelRef) => Promise<ModelState>
 
