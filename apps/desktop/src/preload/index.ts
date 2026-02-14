@@ -40,6 +40,34 @@ contextBridge.exposeInMainWorld("palot", {
 	/** Stops the managed OpenCode server. */
 	stopOpenCode: () => ipcRenderer.invoke("opencode:stop"),
 
+	// --- Credential storage (safeStorage-backed) ---
+
+	credential: {
+		store: (serverId: string, password: string) =>
+			ipcRenderer.invoke("credential:store", serverId, password),
+		get: (serverId: string) => ipcRenderer.invoke("credential:get", serverId),
+		delete: (serverId: string) => ipcRenderer.invoke("credential:delete", serverId),
+	},
+
+	/** Test connectivity to a remote OpenCode server. Returns null on success or error message. */
+	testServerConnection: (url: string, username?: string, password?: string) =>
+		ipcRenderer.invoke("server:test-connection", url, username, password),
+
+	// --- mDNS discovery ---
+
+	mdns: {
+		/** Get the current list of discovered servers. */
+		getDiscovered: () => ipcRenderer.invoke("mdns:get-discovered"),
+		/** Subscribe to discovered server list changes. */
+		onChanged: (callback: (servers: unknown[]) => void) => {
+			const listener = (_event: unknown, servers: unknown[]) => callback(servers)
+			ipcRenderer.on("mdns:servers-changed", listener)
+			return () => {
+				ipcRenderer.removeListener("mdns:servers-changed", listener)
+			}
+		},
+	},
+
 	/** Reads model state (recent models, favorites, variants). */
 	getModelState: () => ipcRenderer.invoke("model-state"),
 

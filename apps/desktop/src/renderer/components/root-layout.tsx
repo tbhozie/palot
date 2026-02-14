@@ -19,6 +19,7 @@ import { useDiscovery } from "../hooks/use-discovery"
 import { useMockMode } from "../hooks/use-mock-mode"
 import { useNotifications } from "../hooks/use-notifications"
 import { useServerConnection } from "../hooks/use-server"
+import { useServerSettingsSync } from "../hooks/use-servers"
 import { useSystemAccentColor } from "../hooks/use-system-accent-color"
 import { useThemeEffect } from "../hooks/use-theme"
 import { useWaitingIndicator } from "../hooks/use-waiting-indicator"
@@ -36,6 +37,7 @@ export function RootLayout() {
 	const isElectronEnv = typeof window !== "undefined" && "palot" in window
 	const showOnboarding = isElectronEnv && !onboardingState.completed && !isMockMode
 
+	useServerSettingsSync()
 	useDiscovery()
 	useServerConnection()
 	useWaitingIndicator()

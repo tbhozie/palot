@@ -1,6 +1,6 @@
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { processEvent } from "../atoms/actions/event-processor"
-import { serverConnectedAtom, serverUrlAtom } from "../atoms/connection"
+import { authHeaderAtom, serverConnectedAtom, serverUrlAtom } from "../atoms/connection"
 import { batchUpsertPartsAtom } from "../atoms/parts"
 import { setSessionsAtom } from "../atoms/sessions"
 import { appStore } from "../atoms/store"
@@ -25,6 +25,8 @@ const log = createLogger("connection-manager")
 /** The single OpenCode server connection */
 let connection: {
 	url: string
+	/** Auth header for remote servers (null for local/unauthenticated). */
+	authHeader: string | null
 	/** Base client (no directory) — used for SSE subscription */
 	baseClient: OpencodeClient
 	abortController: AbortController
@@ -62,10 +64,13 @@ function setGlobalAbort(controller: AbortController | null) {
 // ============================================================
 
 /**
- * Connect to the single OpenCode server.
+ * Connect to an OpenCode server.
  * Starts SSE subscription for all-project events.
+ *
+ * @param url       Base URL of the OpenCode server
+ * @param authHeader  Optional HTTP Authorization header for remote servers
  */
-export async function connectToOpenCode(url: string): Promise<void> {
+export async function connectToOpenCode(url: string, authHeader?: string | null): Promise<void> {
 	// Disconnect existing connection if any
 	if (connection) {
 		log.info("Disconnecting previous connection", { url: connection.url })
@@ -85,16 +90,18 @@ export async function connectToOpenCode(url: string): Promise<void> {
 	eventLoopGeneration++
 	const gen = eventLoopGeneration
 
+	const resolvedAuth = authHeader ?? null
 	appStore.set(serverUrlAtom, url)
+	appStore.set(authHeaderAtom, resolvedAuth)
 
 	// Base client has no directory — used for SSE events (which cover all projects)
-	const baseClient = connectToServer(url)
+	const baseClient = connectToServer(url, { authHeader: resolvedAuth ?? undefined })
 	const abortController = new AbortController()
 
-	connection = { url, baseClient, abortController }
+	connection = { url, authHeader: resolvedAuth, baseClient, abortController }
 	setGlobalAbort(abortController)
 
-	log.info("Connecting to OpenCode server", { url, generation: gen })
+	log.info("Connecting to OpenCode server", { url, authenticated: !!resolvedAuth, generation: gen })
 
 	// Start SSE event loop in the background
 	startEventLoop(baseClient, abortController.signal, gen)
@@ -162,10 +169,11 @@ export function getProjectClient(directory: string): OpencodeClient | null {
 				staleAbort.abort()
 			}
 
-			const baseClient = connectToServer(storeUrl)
+			const storeAuth = appStore.get(authHeaderAtom)
+			const baseClient = connectToServer(storeUrl, { authHeader: storeAuth ?? undefined })
 			const abortController = new AbortController()
 			eventLoopGeneration++
-			connection = { url: storeUrl, baseClient, abortController }
+			connection = { url: storeUrl, authHeader: storeAuth, baseClient, abortController }
 			setGlobalAbort(abortController)
 			startEventLoop(baseClient, abortController.signal, eventLoopGeneration)
 			appStore.set(serverConnectedAtom, true)
@@ -176,7 +184,10 @@ export function getProjectClient(directory: string): OpencodeClient | null {
 
 	let client = projectClients.get(directory)
 	if (!client) {
-		client = connectToServer(connection.url, directory)
+		client = connectToServer(connection.url, {
+			directory,
+			authHeader: connection.authHeader ?? undefined,
+		})
 		projectClients.set(directory, client)
 	}
 	return client
@@ -192,10 +203,11 @@ export function getBaseClient(): OpencodeClient | null {
 		// HMR recovery
 		const storeUrl = appStore.get(serverUrlAtom)
 		if (storeUrl) {
-			const baseClient = connectToServer(storeUrl)
+			const storeAuth = appStore.get(authHeaderAtom)
+			const baseClient = connectToServer(storeUrl, { authHeader: storeAuth ?? undefined })
 			const abortController = new AbortController()
 			eventLoopGeneration++
-			connection = { url: storeUrl, baseClient, abortController }
+			connection = { url: storeUrl, authHeader: storeAuth, baseClient, abortController }
 			setGlobalAbort(abortController)
 			startEventLoop(baseClient, abortController.signal, eventLoopGeneration)
 			appStore.set(serverConnectedAtom, true)

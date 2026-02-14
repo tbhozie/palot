@@ -41,6 +41,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition 
 import { agentFamily, projectSessionIdsFamily } from "../atoms/derived/agents"
 import { appStore } from "../atoms/store"
 import type { Agent, AgentStatus, SidebarProject } from "../lib/types"
+import { ServerIndicator } from "./server-indicator"
 
 // ============================================================
 // Constants
@@ -328,7 +329,8 @@ export function AppSidebarContent({
 					</SidebarGroupContent>
 				</SidebarGroup>
 			</SidebarContent>
-			<SidebarFooter className="p-2">
+			<SidebarFooter className="space-y-0 p-2">
+				<ServerIndicator />
 				<SidebarMenu>
 					<SidebarMenuItem>
 						<SidebarMenuButton

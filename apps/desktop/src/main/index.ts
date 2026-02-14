@@ -3,9 +3,11 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { app, BrowserWindow, Menu, session, shell } from "electron"
 import { initAutomations, shutdownAutomations } from "./automation"
+import { initCredentialStore } from "./credential-store"
 import { getOpaqueWindowsPref, registerIpcHandlers } from "./ipc-handlers"
 import { installLiquidGlass, resolveWindowChrome } from "./liquid-glass"
 import { createLogger } from "./logger"
+import { startMdnsScanner, stopMdnsScanner } from "./mdns-scanner"
 import { stopServer } from "./opencode-manager"
 import { initSettingsStore } from "./settings-store"
 import { fixProcessEnv } from "./shell-env"
@@ -225,9 +227,11 @@ if (!gotLock) {
 		log.info("Registered PNA header injection for 127.0.0.1 requests")
 
 		initSettingsStore()
+		initCredentialStore()
 		registerIpcHandlers()
 		initAutomations().catch(console.error)
 		pruneStaleWorktrees(7).catch((err) => log.warn("Worktree pruning failed", err))
+		startMdnsScanner().catch((err) => log.warn("mDNS scanner failed to start", err))
 		createWindow()
 		createTray(() => BrowserWindow.getAllWindows()[0])
 		initAutoUpdater().catch(console.error)
@@ -238,9 +242,10 @@ if (!gotLock) {
 	})
 
 	app.on("window-all-closed", () => {
-		// Clean up the managed opencode server, automations, tray, and auto-updater
+		// Clean up the managed opencode server, automations, tray, mDNS, and auto-updater
 		destroyTray()
 		shutdownAutomations()
+		stopMdnsScanner()
 		stopServer()
 		stopAutoUpdater()
 		if (process.platform !== "darwin") app.quit()

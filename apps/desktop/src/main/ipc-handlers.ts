@@ -14,7 +14,7 @@ import {
 } from "./automation"
 import type { CreateAutomationInput, UpdateAutomationInput } from "./automation/types"
 import { installCli, isCliInstalled, uninstallCli } from "./cli-install"
-
+import { deleteCredential, getCredential, storeCredential } from "./credential-store"
 import {
 	addWorktree,
 	applyChangesToLocal,
@@ -35,6 +35,7 @@ import {
 } from "./git-service"
 import { getResolvedChromeTier } from "./liquid-glass"
 import { createLogger } from "./logger"
+import { getDiscoveredServers } from "./mdns-scanner"
 
 import { readModelState, updateModelRecent } from "./model-state"
 import { dismissNotification, updateBadgeCount } from "./notifications"
@@ -424,6 +425,61 @@ export function registerIpcHandlers(): void {
 	ipcMain.handle("settings:get", () => getSettings())
 
 	ipcMain.handle("settings:update", (_, partial) => updateSettings(partial))
+
+	// --- Credential storage (safeStorage-backed) ---
+
+	ipcMain.handle(
+		"credential:store",
+		withLogging("credential:store", (_, serverId: string, password: string) => {
+			storeCredential(serverId, password)
+		}),
+	)
+
+	ipcMain.handle("credential:get", (_, serverId: string) => getCredential(serverId))
+
+	ipcMain.handle(
+		"credential:delete",
+		withLogging("credential:delete", (_, serverId: string) => {
+			deleteCredential(serverId)
+		}),
+	)
+
+	// --- mDNS discovery ---
+
+	ipcMain.handle("mdns:get-discovered", () => getDiscoveredServers())
+
+	// --- Remote server connectivity test ---
+
+	ipcMain.handle(
+		"server:test-connection",
+		withLogging(
+			"server:test-connection",
+			async (_, url: string, username?: string, password?: string) => {
+				try {
+					const headers: Record<string, string> = {}
+					if (password) {
+						const user = username || "opencode"
+						headers.Authorization = `Basic ${Buffer.from(`${user}:${password}`).toString("base64")}`
+					}
+					const res = await net.fetch(`${url}/session`, {
+						method: "GET",
+						headers,
+						signal: AbortSignal.timeout(5000),
+					})
+					if (res.ok) return null
+					if (res.status === 401) return "Authentication failed. Check username and password."
+					return `Server responded with HTTP ${res.status} ${res.statusText}`
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : String(err)
+					if (msg.includes("ECONNREFUSED")) return "Connection refused. Is the server running?"
+					if (msg.includes("ENOTFOUND")) return "Host not found. Check the URL."
+					if (msg.includes("ETIMEDOUT") || msg.includes("timeout")) return "Connection timed out."
+					if (msg.includes("CERT")) return `TLS/certificate error: ${msg}`
+					return `Connection failed: ${msg}`
+				}
+			},
+		),
+	)
 
 	// --- Native theme (controls macOS glass tint color) ---
 

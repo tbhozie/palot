@@ -130,6 +130,78 @@ export interface OpenInTargetsResult {
 }
 
 // ============================================================
+// Server config types (shared between main process and renderer)
+// ============================================================
+
+/** Built-in local server, auto-managed by Palot via OpenCodeManager. */
+export interface LocalServerConfig {
+	id: "local"
+	name: string
+	type: "local"
+}
+
+/** Remote server reachable over HTTP(S). */
+export interface RemoteServerConfig {
+	id: string
+	name: string
+	type: "remote"
+	/** Full base URL, e.g. "https://opencode.example.com:4096" */
+	url: string
+	/** Basic Auth username (defaults to "opencode" if omitted). */
+	username?: string
+	/** Whether a password is stored in safeStorage (never stored in settings.json). */
+	hasPassword?: boolean
+}
+
+/** SSH tunnel server (future -- type is defined now to avoid config migration later). */
+export interface SshServerConfig {
+	id: string
+	name: string
+	type: "ssh"
+	sshHost: string
+	sshPort?: number
+	sshUser: string
+	sshAuthMethod: "key" | "password" | "agent"
+	sshKeyPath?: string
+	/** Where OpenCode listens on the remote machine (default 127.0.0.1). */
+	remoteHost?: string
+	remotePort: number
+	/** Basic Auth username for the OpenCode server (defaults to "opencode"). */
+	username?: string
+	hasPassword?: boolean
+}
+
+export type ServerConfig = LocalServerConfig | RemoteServerConfig | SshServerConfig
+
+// ============================================================
+// mDNS discovery types
+// ============================================================
+
+/** A server discovered via mDNS on the local network. */
+export interface DiscoveredMdnsServer {
+	/** Unique key derived from host:port. */
+	id: string
+	/** Service name from mDNS (e.g. "opencode-4096"). */
+	name: string
+	/** Resolved hostname or IP address. */
+	host: string
+	/** Port the OpenCode server is listening on. */
+	port: number
+	/** IP addresses reported by the service. */
+	addresses: string[]
+}
+
+/** The default built-in local server entry (defined in server-config.ts). */
+export declare const DEFAULT_LOCAL_SERVER: LocalServerConfig
+
+export interface ServerSettings {
+	/** Ordered list of configured servers. The local server is always first. */
+	servers: ServerConfig[]
+	/** ID of the currently active server. */
+	activeServerId: string
+}
+
+// ============================================================
 // Settings types (shared between main process and renderer)
 // ============================================================
 
@@ -147,6 +219,8 @@ export interface AppSettings {
 	notifications: NotificationSettings
 	/** Whether the user prefers opaque (solid) windows. Read at window creation time. */
 	opaqueWindows: boolean
+	/** Server connection configuration. */
+	servers: ServerSettings
 }
 
 // ============================================================
@@ -343,6 +417,31 @@ export interface PalotAPI {
 	stopOpenCode: () => Promise<boolean>
 	getModelState: () => Promise<ModelState>
 	updateModelRecent: (model: ModelRef) => Promise<ModelState>
+
+	// Credential storage (safeStorage-backed, passwords never leave main process in plain text)
+	credential: {
+		/** Store an encrypted password for a server. */
+		store: (serverId: string, password: string) => Promise<void>
+		/** Retrieve a decrypted password for a server (only returns to renderer for auth headers). */
+		get: (serverId: string) => Promise<string | null>
+		/** Delete a stored password. */
+		delete: (serverId: string) => Promise<void>
+	}
+
+	/** Test connectivity to a remote OpenCode server. Returns null on success or an error message. */
+	testServerConnection: (
+		url: string,
+		username?: string,
+		password?: string,
+	) => Promise<string | null>
+
+	// mDNS discovery
+	mdns: {
+		/** Get the current list of discovered servers. */
+		getDiscovered: () => Promise<DiscoveredMdnsServer[]>
+		/** Subscribe to discovered server list changes. Returns an unsubscribe function. */
+		onChanged: (callback: (servers: DiscoveredMdnsServer[]) => void) => () => void
+	}
 
 	// Auto-updater
 	getUpdateState: () => Promise<UpdateState>

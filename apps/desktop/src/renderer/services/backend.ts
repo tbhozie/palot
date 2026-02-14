@@ -47,6 +47,8 @@ export const isElectron = typeof window !== "undefined" && "palot" in window
 
 /**
  * Ensures the single OpenCode server is running and returns its URL.
+ * For local servers, this spawns/attaches via IPC.
+ * For remote servers, the URL is already known and returned directly.
  */
 export async function fetchOpenCodeUrl(): Promise<{ url: string }> {
 	log.debug("fetchOpenCodeUrl", { via: isElectron ? "ipc" : "http" })
@@ -64,6 +66,51 @@ export async function fetchOpenCodeUrl(): Promise<{ url: string }> {
 		log.error("fetchOpenCodeUrl failed", err)
 		throw err
 	}
+}
+
+/**
+ * Resolve the connection URL for a server config.
+ * For local servers, spawns/attaches via the existing IPC mechanism.
+ * For remote servers, returns the configured URL directly.
+ */
+export async function resolveServerUrl(
+	server: import("../../preload/api").ServerConfig,
+): Promise<string> {
+	switch (server.type) {
+		case "local": {
+			const { url } = await fetchOpenCodeUrl()
+			return url
+		}
+		case "remote":
+			return server.url
+		case "ssh":
+			// SSH tunneling not yet implemented; the URL would come from the tunnel manager
+			throw new Error("SSH tunnel servers are not yet supported")
+		default:
+			throw new Error(`Unknown server type: ${(server as { type: string }).type}`)
+	}
+}
+
+/**
+ * Resolve the auth header for a server config.
+ * Fetches the encrypted password from the main process via IPC.
+ * Returns null for unauthenticated servers.
+ */
+export async function resolveAuthHeader(
+	server: import("../../preload/api").ServerConfig,
+): Promise<string | null> {
+	if (server.type === "local") return null
+	if (server.type === "remote" || server.type === "ssh") {
+		if (!server.hasPassword) return null
+		if (!isElectron) return null
+
+		const password = await window.palot.credential.get(server.id)
+		if (!password) return null
+
+		const username = server.username || "opencode"
+		return `Basic ${btoa(`${username}:${password}`)}`
+	}
+	return null
 }
 
 /**

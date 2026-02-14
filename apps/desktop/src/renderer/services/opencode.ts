@@ -88,8 +88,11 @@ function isSseRequest(request: Request): boolean {
  *
  * SSE requests are excluded — they need a streaming ReadableStream body
  * which can't be serialized over IPC, so they use regular browser fetch.
+ *
+ * When `authHeader` is provided, it is injected into every request (including
+ * SSE) to support HTTP Basic Auth for remote OpenCode servers.
  */
-function createIpcFetch(): typeof fetch {
+function createIpcFetch(authHeader?: string): typeof fetch {
 	return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 		// Normalize input to a Request object (the SDK always passes a Request,
 		// but handle URL/string too for robustness)
@@ -97,6 +100,12 @@ function createIpcFetch(): typeof fetch {
 
 		// SSE streams must stay in the renderer — they need a streaming body
 		if (isSseRequest(request)) {
+			// Inject auth header into SSE requests if needed
+			if (authHeader) {
+				const headers = new Headers(request.headers)
+				headers.set("Authorization", authHeader)
+				return fetch(new Request(request, { headers }))
+			}
 			return fetch(request)
 		}
 
@@ -105,6 +114,11 @@ function createIpcFetch(): typeof fetch {
 		request.headers.forEach((value, key) => {
 			headers[key] = value
 		})
+
+		// Inject auth header for remote servers
+		if (authHeader) {
+			headers.Authorization = authHeader
+		}
 
 		const body = request.body ? await request.text() : null
 
@@ -139,6 +153,28 @@ function createIpcFetch(): typeof fetch {
 	}
 }
 
+// ============================================================
+// Auth helpers
+// ============================================================
+
+/**
+ * Build an HTTP Basic Auth header value from username and password.
+ */
+export function buildBasicAuthHeader(username: string, password: string): string {
+	return `Basic ${btoa(`${username}:${password}`)}`
+}
+
+// ============================================================
+// Client creation
+// ============================================================
+
+export interface ConnectOptions {
+	/** Project directory for scoped requests. */
+	directory?: string
+	/** Pre-built Authorization header value (e.g. "Basic dXNlcjpwYXNz"). */
+	authHeader?: string
+}
+
 /**
  * Creates an OpenCode client connected to a running server.
  *
@@ -146,15 +182,20 @@ function createIpcFetch(): typeof fetch {
  * header is used. The OpenCode server reads this header (or a `?directory=`
  * query param) to scope requests to the correct project instance.
  *
+ * When `authHeader` is provided, it is injected into every request for
+ * HTTP Basic Auth (used by remote OpenCode servers).
+ *
  * In Electron mode, non-SSE requests are proxied through the main process
  * via IPC to bypass Chromium's 6-connections-per-origin HTTP/1.1 limit.
  * SSE requests (for the event stream) still use the browser's native fetch.
  */
-export function connectToServer(url: string, directory?: string): OpencodeClient {
+export function connectToServer(url: string, options?: ConnectOptions): OpencodeClient {
+	const { directory, authHeader } = options ?? {}
+
 	// In Electron: use IPC-based fetch (with retry wrapper on top) for API calls,
 	// falling back to browser fetch only for SSE streams.
 	// In browser: use regular fetch with retry wrapper (no IPC available).
-	const baseFetch = isElectron ? createIpcFetch() : fetch
+	const baseFetch = isElectron ? createIpcFetch(authHeader) : createBrowserFetch(authHeader)
 
 	return createOpencodeClient({
 		baseUrl: url,
@@ -163,6 +204,20 @@ export function connectToServer(url: string, directory?: string): OpencodeClient
 		// (e.g. ERR_ALPN_NEGOTIATION_FAILED on localhost connections)
 		fetch: createRetryFetch(baseFetch),
 	})
+}
+
+/**
+ * Creates a browser fetch wrapper that optionally injects an auth header.
+ * Used in non-Electron (browser dev) mode.
+ */
+function createBrowserFetch(authHeader?: string): typeof fetch {
+	if (!authHeader) return fetch
+	return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+		const request = input instanceof Request ? input : new Request(input, init)
+		const headers = new Headers(request.headers)
+		headers.set("Authorization", authHeader)
+		return fetch(new Request(request, { headers }))
+	}
 }
 
 /**

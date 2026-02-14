@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import type { AppSettings } from "../../preload/api"
+import { DEFAULT_SERVER_SETTINGS } from "../../shared/server-config"
 
 const isElectron = typeof window !== "undefined" && "palot" in window
 
@@ -12,6 +13,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 		dockBadge: true,
 	},
 	opaqueWindows: false,
+	servers: DEFAULT_SERVER_SETTINGS,
 }
 
 export function useSettings() {
