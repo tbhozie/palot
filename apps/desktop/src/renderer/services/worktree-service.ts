@@ -101,7 +101,7 @@ async function waitForWorktreeReady(
 
 	while (Date.now() - start < timeoutMs) {
 		try {
-			const result = await client.experimental.worktree.list()
+			const result = await client.worktree.list()
 			const sandboxes = (result.data ?? []) as string[]
 			if (sandboxes.includes(directory)) {
 				log.debug("Worktree ready (found in sandbox list)", { directory })
@@ -138,8 +138,8 @@ export async function createWorktree(
 	}
 
 	try {
-		const result = await client.experimental.worktree.create({
-			body: {
+		const result = await client.worktree.create({
+			worktreeCreateInput: {
 				name: sessionSlug,
 				startCommand: buildEnvSyncCommand(sourceDir, "$PWD"),
 			},
@@ -186,7 +186,7 @@ export async function listWorktrees(projectDir: string): Promise<string[]> {
 	}
 
 	try {
-		const result = await client.experimental.worktree.list()
+		const result = await client.worktree.list()
 		return (result.data ?? []) as string[]
 	} catch {
 		log.debug("Worktree list API not available")
@@ -204,8 +204,8 @@ export async function removeWorktree(projectDir: string, worktreeDir: string): P
 	}
 
 	try {
-		await client.experimental.worktree.remove({
-			body: { directory: worktreeDir },
+		await client.worktree.remove({
+			worktreeRemoveInput: { directory: worktreeDir },
 		})
 		log.info("Worktree removed via API", { worktreeDir })
 	} catch (err) {
@@ -226,8 +226,8 @@ export async function resetWorktree(projectDir: string, worktreeDir: string): Pr
 	}
 
 	try {
-		await client.experimental.worktree.reset({
-			body: { directory: worktreeDir },
+		await client.worktree.reset({
+			worktreeResetInput: { directory: worktreeDir },
 		})
 		log.info("Worktree reset via API", { worktreeDir })
 	} catch (err) {
