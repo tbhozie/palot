@@ -147,6 +147,19 @@ export function RootLayout() {
 		[setOnboardingState],
 	)
 
+	// ========== Splash cleanup during onboarding ==========
+	// The HTML-level #splash (index.html) is normally removed by StartupOverlay's
+	// mount effect. When onboarding is shown we return early and StartupOverlay
+	// never mounts, so clean up the HTML splash here instead.
+	useEffect(() => {
+		if (!showOnboarding) return
+		const splash = document.getElementById("splash")
+		if (splash) {
+			splash.classList.add("hiding")
+			setTimeout(() => splash.remove(), 300)
+		}
+	}, [showOnboarding])
+
 	// ========== Layout ==========
 
 	if (showOnboarding) {
