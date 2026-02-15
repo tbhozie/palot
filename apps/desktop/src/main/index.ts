@@ -10,7 +10,7 @@ import { createLogger } from "./logger"
 import { startMdnsScanner, stopMdnsScanner } from "./mdns-scanner"
 import { stopServer } from "./opencode-manager"
 import { initSettingsStore } from "./settings-store"
-import { fixProcessEnv } from "./shell-env"
+import { startEnvResolution } from "./shell-env"
 import { createTray, destroyTray } from "./tray"
 import { initAutoUpdater, stopAutoUpdater } from "./updater"
 
@@ -20,10 +20,12 @@ const log = createLogger("app")
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-// Fix process.env early — Electron GUI launches on macOS/Linux get a minimal
-// launchd environment missing user PATH additions (homebrew, nvm, bun, etc.).
-// This spawns a login shell once to capture the real environment.
-fixProcessEnv()
+// Start resolving the shell environment asynchronously. On macOS/Linux, Electron
+// GUI launches get a minimal launchd environment missing user PATH additions
+// (homebrew, nvm, bun, etc.). This spawns a login shell in the background --
+// window creation proceeds immediately without waiting. Operations that need the
+// full PATH (e.g., spawning opencode) call waitForEnv() before proceeding.
+startEnvResolution()
 
 // Minimal menu — required on macOS for Cmd+C/V/X/A to work in web contents.
 // A null menu kills native Edit shortcuts on macOS. This minimal template is

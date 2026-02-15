@@ -2,17 +2,20 @@
  * Resolves the user's full shell environment by spawning a login shell.
  *
  * When Electron is launched from Finder/Dock (not a terminal), macOS gives
- * it a minimal launchd environment — missing everything added by .zshrc,
+ * it a minimal launchd environment missing everything added by .zshrc,
  * .zprofile, homebrew, nvm, bun, etc. This module runs the user's login
  * shell once at startup, captures `env`, and merges the result into
  * `process.env` so that child processes (opencode server, git, etc.) see
  * the full PATH and other user-configured variables.
  *
+ * The resolution is fully async (using `execFile`, not `execFileSync`) so
+ * window creation and HTML loading proceed immediately without blocking.
+ *
  * On Windows this is a no-op because Windows GUI apps inherit the full
  * user environment from the registry.
  */
 
-import { execFileSync } from "node:child_process"
+import { execFile } from "node:child_process"
 import { homedir } from "node:os"
 
 const DELIMITER = "__PALOT_SHELL_ENV_DELIMITER__"
@@ -64,12 +67,32 @@ function parseEnv(raw: string): Record<string, string> {
 	return result
 }
 
+/** Promise wrapper around `child_process.execFile`. Returns stdout as a string. */
+function execFileAsync(
+	file: string,
+	args: string[],
+	options: {
+		encoding: "utf-8"
+		timeout: number
+		maxBuffer: number
+		cwd: string
+		env: NodeJS.ProcessEnv
+	},
+): Promise<string> {
+	return new Promise((resolve, reject) => {
+		execFile(file, args, options, (error, stdout) => {
+			if (error) reject(error)
+			else resolve(stdout)
+		})
+	})
+}
+
 /**
- * Spawn a login shell, run `env`, and return the parsed environment.
- * Tries the user's preferred shell first, then falls back to /bin/zsh
- * and /bin/bash.
+ * Spawn a login shell asynchronously, run `env`, and return the parsed
+ * environment. Tries the user's preferred shell first, then falls back to
+ * /bin/zsh and /bin/bash.
  */
-function resolveShellEnv(): Record<string, string> {
+async function resolveShellEnvAsync(): Promise<Record<string, string>> {
 	const command = `echo -n "${DELIMITER}"; command env; echo -n "${DELIMITER}"; exit`
 	const spawnEnv = {
 		...process.env,
@@ -85,13 +108,12 @@ function resolveShellEnv(): Record<string, string> {
 
 	for (const shell of shells) {
 		try {
-			const stdout = execFileSync(shell, ["-ilc", command], {
+			const stdout = await execFileAsync(shell, ["-ilc", command], {
 				encoding: "utf-8",
 				timeout: 5000,
 				maxBuffer: 10 * 1024 * 1024,
 				cwd: homedir(),
 				env: spawnEnv,
-				stdio: ["ignore", "pipe", "ignore"],
 			})
 			const env = parseEnv(stdout)
 			if (env.PATH) return env
@@ -104,18 +126,19 @@ function resolveShellEnv(): Record<string, string> {
 }
 
 /**
- * Fix `process.env` by merging in the user's shell environment.
- * Should be called once, as early as possible in the main process.
+ * Merge the user's shell environment into `process.env` asynchronously.
+ * The shell spawn runs off the main thread, so window creation and HTML
+ * loading proceed in parallel.
  *
  * No-op on Windows (GUI apps already inherit the full user environment).
  */
-export function fixProcessEnv(): void {
+async function resolveAndMergeEnv(): Promise<void> {
 	if (process.platform === "win32") return
 
 	try {
-		const shellEnv = resolveShellEnv()
+		const shellEnv = await resolveShellEnvAsync()
 		if (!shellEnv.PATH) {
-			console.warn("[shell-env] Could not resolve shell environment — PATH will be limited")
+			console.warn("[shell-env] Could not resolve shell environment -- PATH will be limited")
 			return
 		}
 
@@ -128,4 +151,36 @@ export function fixProcessEnv(): void {
 	} catch (error) {
 		console.warn("[shell-env] Failed to resolve shell environment:", error)
 	}
+}
+
+// ============================================================
+// Public API
+// ============================================================
+
+/** Promise that resolves when the shell environment has been merged. */
+let envReadyPromise: Promise<void> | null = null
+
+/**
+ * Start resolving the shell environment asynchronously.
+ * Call this as early as possible in the main process. The shell spawn
+ * runs in the background without blocking the event loop, so window
+ * creation and HTML loading proceed immediately.
+ *
+ * Use `waitForEnv()` to await completion before operations that need the
+ * full PATH (e.g., spawning the opencode server).
+ */
+export function startEnvResolution(): void {
+	if (process.platform === "win32") {
+		envReadyPromise = Promise.resolve()
+		return
+	}
+	envReadyPromise = resolveAndMergeEnv()
+}
+
+/**
+ * Wait for the async shell environment resolution to complete.
+ * Safe to call multiple times; resolves immediately if already done.
+ */
+export function waitForEnv(): Promise<void> {
+	return envReadyPromise ?? Promise.resolve()
 }

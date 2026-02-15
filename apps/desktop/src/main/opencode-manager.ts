@@ -7,6 +7,7 @@ import { getCredential } from "./credential-store"
 import { createLogger } from "./logger"
 import { startNotificationWatcher, stopNotificationWatcher } from "./notification-watcher"
 import { getSettings } from "./settings-store"
+import { waitForEnv } from "./shell-env"
 
 const log = createLogger("opencode-manager")
 
@@ -55,6 +56,11 @@ export async function ensureServer(): Promise<OpenCodeServer> {
 		})
 		return singleServer.server
 	}
+
+	// Ensure the full shell environment is available before spawning the server.
+	// startEnvResolution() fires early in app startup; by the time the renderer
+	// triggers ensureServer() the promise is usually already resolved.
+	await waitForEnv()
 
 	const config = getLocalServerConfig()
 	const hostname = config.hostname || DEFAULT_HOSTNAME
