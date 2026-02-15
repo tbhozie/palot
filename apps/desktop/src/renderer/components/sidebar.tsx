@@ -23,6 +23,7 @@ import { useNavigate, useParams } from "@tanstack/react-router"
 import { useAtomValue } from "jotai"
 import {
 	AlertCircleIcon,
+	BotIcon,
 	CheckCircle2Icon,
 	ChevronRightIcon,
 	CircleDotIcon,
@@ -39,6 +40,7 @@ import {
 } from "lucide-react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { agentFamily, projectSessionIdsFamily } from "../atoms/derived/agents"
+import { automationsEnabledAtom } from "../atoms/feature-flags"
 import { appStore } from "../atoms/store"
 import type { Agent, AgentStatus, SidebarProject } from "../lib/types"
 import { ServerIndicator } from "./server-indicator"
@@ -185,6 +187,7 @@ export function AppSidebarContent({
 	const navigate = useNavigate()
 	const routeParams = useParams({ strict: false }) as { sessionId?: string }
 	const selectedSessionId = routeParams.sessionId ?? null
+	const automationsEnabled = useAtomValue(automationsEnabledAtom)
 
 	// Derive sections
 	const activeSessions = useMemo(
@@ -360,6 +363,18 @@ export function AppSidebarContent({
 			<SidebarFooter className="space-y-0 p-2">
 				<ServerIndicator />
 				<SidebarMenu>
+					{automationsEnabled && (
+						<SidebarMenuItem>
+							<SidebarMenuButton
+								tooltip="Automations"
+								onClick={() => navigate({ to: "/automations" })}
+								className="text-muted-foreground"
+							>
+								<BotIcon className="size-4" />
+								<span>Automations</span>
+							</SidebarMenuButton>
+						</SidebarMenuItem>
+					)}
 					<SidebarMenuItem>
 						<SidebarMenuButton
 							tooltip="Settings"

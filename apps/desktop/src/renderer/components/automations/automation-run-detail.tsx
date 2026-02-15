@@ -19,8 +19,7 @@ import { markAutomationRunRead } from "../../services/backend"
 import { SessionView } from "../session-view"
 
 export function AutomationRunDetail() {
-	const params = useParams({ strict: false }) as { runId?: string }
-	const runId = params.runId ?? null
+	const { runId } = useParams({ strict: false }) as { runId: string }
 
 	const runs = useAutomationRuns()
 	const automations = useAutomations()
