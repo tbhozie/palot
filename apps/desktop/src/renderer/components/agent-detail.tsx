@@ -184,7 +184,6 @@ export function AgentDetail({
 				onRename={onRename}
 				isConnected={isConnected}
 				projectSlug={projectSlug}
-				providers={providers}
 			/>,
 		)
 
@@ -201,7 +200,6 @@ export function AgentDetail({
 		onRename,
 		isConnected,
 		projectSlug,
-		providers,
 		setAppBarContent,
 	])
 
@@ -278,7 +276,6 @@ function SessionAppBarContent({
 	onRename,
 	isConnected,
 	projectSlug,
-	providers,
 }: {
 	agent: Agent
 	isEditingTitle: boolean
@@ -292,7 +289,6 @@ function SessionAppBarContent({
 	onRename?: (agent: Agent, title: string) => Promise<void>
 	isConnected?: boolean
 	projectSlug?: string
-	providers?: ProvidersData | null
 }) {
 	const navigate = useNavigate()
 
@@ -376,7 +372,7 @@ function SessionAppBarContent({
 				</div>
 
 				{/* Session metrics bar */}
-				<SessionMetricsBar sessionId={agent.sessionId} providers={providers} />
+				<SessionMetricsBar sessionId={agent.sessionId} />
 
 				{/* Open in external editor */}
 				<OpenInButton directory={agent.worktreePath ?? agent.directory} />

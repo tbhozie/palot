@@ -36,6 +36,7 @@ import {
 	useRef,
 	useState,
 } from "react"
+import { sessionMetricsFamily } from "../../atoms/derived/session-metrics"
 import { messagesFamily, removeMessageAtom } from "../../atoms/messages"
 import { projectModelsAtom, setProjectModelAtom } from "../../atoms/preferences"
 import type { SessionSetupPhase } from "../../atoms/sessions"
@@ -468,6 +469,7 @@ export function ChatView({
 	const sessionEntry = useAtomValue(sessionFamily(agent.sessionId))
 	const sessionError = sessionEntry?.error
 	const setupPhase = sessionEntry?.setupPhase
+	const sessionMetrics = useAtomValue(sessionMetricsFamily(agent.sessionId))
 
 	// Stable callbacks for question/permission handlers — agent is stable
 	// per render, but wrapping in useCallback avoids creating new inline
@@ -1311,6 +1313,9 @@ export function ChatView({
 							isConnected={isConnected}
 							isWorking={isWorking}
 							interruptCount={interruptCount}
+							sessionId={agent.sessionId}
+							providers={providers}
+							sessionCost={sessionMetrics.costRaw}
 							extraSlot={
 								agent.worktreePath ? (
 									<div className="flex items-center gap-1">
