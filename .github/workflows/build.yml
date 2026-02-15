@@ -64,7 +64,7 @@ jobs:
             platform: mac
             eb-flags: "--mac --arm64"
           - name: macos-x64
-            os: macos-13
+            os: macos-15-intel
             platform: mac
             eb-flags: "--mac --x64"
           - name: windows-x64
