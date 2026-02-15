@@ -35,6 +35,7 @@ import {
 	TriangleIcon,
 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { toast } from "sonner"
 import type { Automation } from "../../../preload/api"
 import { activeServerConfigAtom } from "../../atoms/connection"
 import { discoveryProjectsAtom } from "../../atoms/discovery"
@@ -148,8 +149,10 @@ export function CreateAutomationDialog({
 				})
 			}
 			onOpenChange(false)
-		} catch {
-			// TODO: show error toast
+		} catch (err) {
+			toast.error(isEditing ? "Failed to save automation" : "Failed to create automation", {
+				description: err instanceof Error ? err.message : undefined,
+			})
 		} finally {
 			setIsSubmitting(false)
 		}
@@ -219,8 +222,10 @@ export function CreateAutomationDialog({
 		try {
 			await deleteAutomation(editAutomation.id)
 			onOpenChange(false)
-		} catch {
-			// TODO: show error toast
+		} catch (err) {
+			toast.error("Failed to delete automation", {
+				description: err instanceof Error ? err.message : undefined,
+			})
 		}
 	}, [editAutomation, onOpenChange])
 
@@ -229,9 +234,14 @@ export function CreateAutomationDialog({
 		setIsTesting(true)
 		try {
 			await runAutomationNow(editAutomation.id)
+			toast.success("Automation run started", {
+				description: "Check the inbox for results.",
+			})
 			onOpenChange(false)
-		} catch {
-			// TODO: show error toast
+		} catch (err) {
+			toast.error("Failed to run automation", {
+				description: err instanceof Error ? err.message : undefined,
+			})
 		} finally {
 			setIsTesting(false)
 		}
@@ -245,8 +255,10 @@ export function CreateAutomationDialog({
 				status: editAutomation.status === "paused" ? "active" : "paused",
 			})
 			onOpenChange(false)
-		} catch {
-			// TODO: show error toast
+		} catch (err) {
+			toast.error("Failed to update automation", {
+				description: err instanceof Error ? err.message : undefined,
+			})
 		}
 	}, [editAutomation, onOpenChange])
 
