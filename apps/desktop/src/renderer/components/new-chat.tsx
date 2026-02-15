@@ -43,7 +43,7 @@ import {
 } from "../hooks/use-opencode-data"
 import { useAgentActions } from "../hooks/use-server"
 import type { FileAttachment } from "../lib/types"
-import { createWorktree } from "../services/worktree-service"
+import { createWorktree, randomWorktreeName } from "../services/worktree-service"
 import { useSetAppBarContent } from "./app-bar-context"
 import { BranchPicker } from "./branch-picker"
 import { PromptAttachmentPreview } from "./chat/prompt-attachments"
@@ -373,14 +373,7 @@ export function NewChat() {
 	 */
 	const launchWorktree = useCallback(
 		(promptText: string, files?: FileAttachment[]) => {
-			const sessionSlug = promptText
-				.toLowerCase()
-				.replace(/[^a-z0-9\s-]/g, "")
-				.trim()
-				.split(/\s+/)
-				.slice(0, 4)
-				.join("-")
-				.slice(0, 40)
+			const sessionSlug = randomWorktreeName()
 
 			// Create a stub session so the chat view can render immediately.
 			const stubId = crypto.randomUUID()
