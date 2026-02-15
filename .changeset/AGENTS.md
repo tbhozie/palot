@@ -108,25 +108,51 @@ not mentioned in any changeset are left at their current version.
 4. Commit the changeset file alongside your code changes (or in a follow-up
    commit on the same branch).
 
-### Releasing (on main)
+### Automated release pipeline (GitHub Actions)
 
-1. Ensure all changeset files are committed on `main`.
-2. Run `bun run version-packages` (alias for `bunx changeset version`).
-   This consumes all `.md` changeset files, bumps `package.json` versions,
-   updates `CHANGELOG.md` files, and deletes the consumed changeset files.
-3. Review the resulting diff (version bumps + changelog entries).
-4. Commit: `git commit -am "chore: version packages"`.
-5. Push to the appropriate remote.
+Version bumping, changelog generation, and releasing are **fully automated** by
+two GitHub workflows. Agents and developers should never run `changeset version`
+manually.
+
+**On push to `main` with pending changesets** (`.github/workflows/release.yml`):
+
+1. The `changesets/action` detects pending `.md` files in `.changeset/`.
+2. It runs `bun changeset version` automatically, which consumes the changeset
+   files, bumps `package.json` versions, and updates `CHANGELOG.md` files.
+3. It opens (or updates) a **"chore: version packages"** PR with all the
+   version bump changes.
+4. A maintainer reviews and merges that PR.
+
+**On merge of the version PR** (same workflow, second run):
+
+1. The `changesets/action` detects no pending changesets and runs
+   `bun changeset tag`, which creates git tags for the new versions.
+2. The workflow reads the new version from `apps/desktop/package.json`.
+3. It triggers cross-platform Electron builds (Linux, macOS, Windows).
+4. It creates a GitHub Release with the changelog body and all build artifacts.
+
+**On PRs targeting `main`** (`.github/workflows/changeset-check.yml`):
+
+- A check warns if no changeset file is present, reminding contributors to add
+  one for user-facing changes.
+
+### Manual release (escape hatch)
+
+Use `workflow_dispatch` on the Release workflow to force a build and release
+from the current `package.json` version. This is for recovery or re-releases
+only, not normal operation.
 
 ### What NOT to do
 
-- Do NOT run `changeset version` on feature branches; only on `main` at
-  release time.
+- Do NOT run `changeset version` or `changeset tag` locally. The GitHub Action
+  handles this, and running it locally causes conflicts with the automated PR.
 - Do NOT manually edit `CHANGELOG.md`; let the tool generate it.
 - Do NOT use `changeset add` interactively in agent sessions (it requires
   `/dev/tty`). Create the `.md` files directly instead.
 - Do NOT create empty changesets (no packages listed). Use `--empty` only for
   documentation-only changes that need no version bump.
+- Do NOT push version bump commits manually. Let the "Version Packages" PR
+  handle the version/changelog/tag lifecycle.
 
 ## Config reference
 
