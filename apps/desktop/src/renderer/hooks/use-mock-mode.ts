@@ -116,6 +116,7 @@ function deactivateMockMode(): void {
 		loaded: false,
 		loading: false,
 		error: null,
+		phase: "idle",
 		projects: [],
 	})
 

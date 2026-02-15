@@ -119,6 +119,7 @@ export const MOCK_DISCOVERY: DiscoveryState = {
 	loaded: true,
 	loading: false,
 	error: null,
+	phase: "ready",
 	projects: mockDiscoveredProjects,
 }
 

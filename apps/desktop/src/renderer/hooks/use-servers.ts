@@ -260,6 +260,7 @@ function triggerServerSwitch(newActiveServerId: string) {
 		loaded: false,
 		loading: false,
 		error: null,
+		phase: "idle",
 		projects: [],
 	})
 }

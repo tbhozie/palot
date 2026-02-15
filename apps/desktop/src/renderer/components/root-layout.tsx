@@ -8,6 +8,7 @@ import { Outlet, useNavigate, useParams } from "@tanstack/react-router"
 import { useAtomValue, useSetAtom } from "jotai"
 import { useCallback, useEffect, useMemo } from "react"
 import { Toaster } from "sonner"
+import { discoveryPhaseAtom } from "../atoms/discovery"
 import { onboardingStateAtom } from "../atoms/onboarding"
 import {
 	useAgents,
@@ -28,6 +29,7 @@ import { AppBarProvider } from "./app-bar-context"
 import { CommandPalette } from "./command-palette"
 import { OnboardingOverlay } from "./onboarding/onboarding-overlay"
 import { SidebarSlotProvider } from "./sidebar-slot-context"
+import { StartupOverlay } from "./startup-overlay"
 
 export function RootLayout() {
 	const isMockMode = useMockMode()
@@ -37,6 +39,9 @@ export function RootLayout() {
 	// Only run discovery/connection after onboarding is complete (or in browser mode / mock mode)
 	const isElectronEnv = typeof window !== "undefined" && "palot" in window
 	const showOnboarding = isElectronEnv && !onboardingState.completed && !isMockMode
+
+	// Track discovery phase to coordinate startup overlay / content crossfade
+	const phase = useAtomValue(discoveryPhaseAtom)
 
 	useServerSettingsSync()
 	useDiscovery()
@@ -148,17 +153,28 @@ export function RootLayout() {
 		return <OnboardingOverlay onComplete={handleOnboardingComplete} />
 	}
 
+	// Hide app content while the startup overlay is covering the screen.
+	// The overlay fades out at "ready"; showing content at "ready" creates a
+	// smooth crossfade. Content is still rendered (just invisible) so React
+	// can paint it before the overlay lifts.
+	const contentReady = phase === "ready" || phase === "loading-sessions" || phase === "error"
+
 	return (
 		<TooltipProvider>
 			<AppBarProvider>
 				<SidebarSlotProvider>
-					<Outlet />
-					<CommandPalette
-						open={commandPaletteOpen}
-						onOpenChange={setCommandPaletteOpen}
-						agents={agents}
-					/>
-					<Toaster position="bottom-right" />
+					<div
+						className={`transition-opacity duration-300 ${contentReady ? "opacity-100" : "opacity-0"}`}
+					>
+						<Outlet />
+						<CommandPalette
+							open={commandPaletteOpen}
+							onOpenChange={setCommandPaletteOpen}
+							agents={agents}
+						/>
+						<Toaster position="bottom-right" />
+					</div>
+					<StartupOverlay />
 				</SidebarSlotProvider>
 			</AppBarProvider>
 		</TooltipProvider>

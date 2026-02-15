@@ -6,6 +6,26 @@ import type { OpenCodeProject } from "../lib/types"
 // ============================================================
 
 /**
+ * Granular startup phase for UI feedback.
+ *
+ * - `idle`: initial state, discovery hasn't started
+ * - `starting-server`: waiting for the OpenCode server to start/connect
+ * - `connecting`: establishing SSE event stream
+ * - `loading-projects`: fetching the project list from the API
+ * - `loading-sessions`: fetching sessions for discovered projects
+ * - `ready`: discovery complete, app is usable
+ * - `error`: discovery failed
+ */
+export type DiscoveryPhase =
+	| "idle"
+	| "starting-server"
+	| "connecting"
+	| "loading-projects"
+	| "loading-sessions"
+	| "ready"
+	| "error"
+
+/**
  * State for discovered project/session data.
  *
  * With API-first discovery, projects come from `client.project.list()` and
@@ -17,6 +37,8 @@ export interface DiscoveryState {
 	loaded: boolean
 	loading: boolean
 	error: string | null
+	/** Granular startup phase for loading UI */
+	phase: DiscoveryPhase
 	/** Projects discovered from the OpenCode API (Project type from SDK) */
 	projects: OpenCodeProject[]
 }
@@ -29,10 +51,12 @@ export const discoveryAtom = atom<DiscoveryState>({
 	loaded: false,
 	loading: false,
 	error: null,
+	phase: "idle",
 	projects: [],
 })
 
 // Convenience selectors
 export const discoveryLoadedAtom = atom((get) => get(discoveryAtom).loaded)
 export const discoveryLoadingAtom = atom((get) => get(discoveryAtom).loading)
+export const discoveryPhaseAtom = atom((get) => get(discoveryAtom).phase)
 export const discoveryProjectsAtom = atom((get) => get(discoveryAtom).projects)

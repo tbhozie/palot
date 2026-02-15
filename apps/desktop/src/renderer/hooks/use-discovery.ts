@@ -25,6 +25,11 @@ export function resetDiscoveryGuard(): void {
 	discoveryInFlight = false
 }
 
+/** Helper to update the discovery phase without touching other fields. */
+function setPhase(phase: import("../atoms/discovery").DiscoveryPhase): void {
+	appStore.set(discoveryAtom, (prev) => ({ ...prev, phase }))
+}
+
 /**
  * API-first discovery hook.
  *
@@ -52,6 +57,7 @@ export function useDiscovery() {
 			...prev,
 			loading: true,
 			error: null,
+			phase: "starting-server",
 		}))
 
 		;(async () => {
@@ -67,6 +73,7 @@ export function useDiscovery() {
 				const authHeader = await resolveAuthHeader(activeServer)
 
 				// --- Step 3: Connect to the server (starts SSE event loop) ---
+				setPhase("connecting")
 				log.info("Connecting to OpenCode server", {
 					url,
 					server: activeServer.name,
@@ -88,11 +95,13 @@ export function useDiscovery() {
 						...prev,
 						loading: false,
 						error: "Server offline",
+						phase: "error",
 					}))
 					return
 				}
 
 				// --- Step 4: Discover projects from the API ---
+				setPhase("loading-projects")
 				log.info("Loading projects from API...")
 				const projects = await loadAllProjects()
 				log.info("Discovered projects via API", { count: projects.length })
@@ -102,6 +111,7 @@ export function useDiscovery() {
 					loaded: true,
 					loading: false,
 					error: null,
+					phase: "loading-sessions",
 					projects,
 				})
 
@@ -152,6 +162,9 @@ export function useDiscovery() {
 					})
 				}
 
+				// Mark discovery as fully complete
+				setPhase("ready")
+
 				log.info("Discovery complete", {
 					server: activeServer.name,
 					url,
@@ -166,6 +179,7 @@ export function useDiscovery() {
 					...prev,
 					loading: false,
 					error: err instanceof Error ? err.message : "Discovery failed",
+					phase: "error",
 				}))
 			}
 		})()
