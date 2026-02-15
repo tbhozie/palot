@@ -6,7 +6,7 @@
  * OpenCode servers without any upstream code changes.
  */
 
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
+import type { OpencodeClient, Worktree } from "@opencode-ai/sdk/v2/client"
 import { createLogger } from "../lib/logger"
 import { isElectron } from "./backend"
 import { getProjectClient } from "./connection-manager"
@@ -16,16 +16,6 @@ const log = createLogger("worktree-service")
 // ============================================================
 // Types
 // ============================================================
-
-/** Result of creating a worktree via the OpenCode API */
-export interface WorktreeCreateResult {
-	/** OpenCode-generated worktree name (e.g. "brave-falcon" or "fix-auth-bug") */
-	name: string
-	/** Branch name (e.g. "opencode/fix-auth-bug") */
-	branch: string
-	/** Absolute path to the worktree directory on the server */
-	directory: string
-}
 
 /** Result shaped for the existing Palot UI (compatible with new-chat.tsx flow) */
 export interface WorktreeResult {
@@ -231,7 +221,7 @@ export async function createWorktree(
 			},
 		})
 
-		const data = result.data as WorktreeCreateResult | undefined
+		const data = result.data as Worktree | undefined
 		if (!data?.directory) {
 			throw new Error("Worktree API returned unexpected response")
 		}
