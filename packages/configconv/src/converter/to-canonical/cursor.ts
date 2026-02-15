@@ -170,10 +170,14 @@ function convertCursorPermissions(perms: {
 		return null
 	}
 
+	const isSafeKey = (key: string): boolean =>
+		key !== "__proto__" && key !== "constructor" && key !== "prototype"
+
 	const processPatterns = (patterns: string[], action: "allow" | "deny" | "ask") => {
 		for (const raw of patterns) {
 			const parsed = parsePattern(raw)
 			if (!parsed) continue
+			if (!isSafeKey(parsed.pattern)) continue
 			const canonical = toolMap[parsed.tool] ?? parsed.tool.toLowerCase()
 
 			if (parsed.pattern === "*") {
