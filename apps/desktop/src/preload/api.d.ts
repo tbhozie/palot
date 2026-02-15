@@ -310,6 +310,8 @@ export interface AutomationSchedule {
 	timezone: string
 }
 
+export type PermissionPreset = "default" | "allow-all" | "read-only"
+
 export interface ExecutionConfig {
 	model?: string
 	effort: "low" | "medium" | "high"
@@ -318,6 +320,10 @@ export interface ExecutionConfig {
 	retryDelay: number
 	parallelWorkspaces: boolean
 	approvalPolicy: "never" | "auto-edit"
+	/** Whether to run in an isolated git worktree (default: true) */
+	useWorktree: boolean
+	/** Permission preset controlling agent tool access */
+	permissionPreset: PermissionPreset
 }
 
 export type AutomationStatus = "active" | "paused" | "archived"
@@ -353,6 +359,7 @@ export interface AutomationRun {
 	status: AutomationRunStatus
 	attempt: number
 	sessionId: string | null
+	worktreePath: string | null
 	startedAt: number | null
 	completedAt: number | null
 	timeoutAt: number | null
