@@ -504,28 +504,44 @@ export function registerIpcHandlers(): void {
 
 	ipcMain.handle(
 		"automation:create",
-		withLogging("automation:create", (_, input: CreateAutomationInput) => createAutomation(input)),
+		withLogging("automation:create", async (_, input: CreateAutomationInput) => {
+			const result = await createAutomation(input)
+			for (const win of BrowserWindow.getAllWindows()) {
+				win.webContents.send("automation:runs-updated")
+			}
+			return result
+		}),
 	)
 
 	ipcMain.handle(
 		"automation:update",
-		withLogging("automation:update", (_, input: UpdateAutomationInput) => updateAutomation(input)),
+		withLogging("automation:update", async (_, input: UpdateAutomationInput) => {
+			const result = await updateAutomation(input)
+			for (const win of BrowserWindow.getAllWindows()) {
+				win.webContents.send("automation:runs-updated")
+			}
+			return result
+		}),
 	)
 
 	ipcMain.handle(
 		"automation:delete",
-		withLogging("automation:delete", (_, id: string) => deleteAutomation(id)),
+		withLogging("automation:delete", async (_, id: string) => {
+			const result = await deleteAutomation(id)
+			for (const win of BrowserWindow.getAllWindows()) {
+				win.webContents.send("automation:runs-updated")
+			}
+			return result
+		}),
 	)
 
 	ipcMain.handle(
 		"automation:run-now",
 		withLogging("automation:run-now", async (_, id: string) => {
-			const result = await runNow(id)
-			// Broadcast run updates to all renderer windows
-			for (const win of BrowserWindow.getAllWindows()) {
-				win.webContents.send("automation:runs-updated")
-			}
-			return result
+			// runNow is fire-and-forget: it returns immediately after validating
+			// the automation exists. Execution happens in the background, and
+			// broadcastRunsUpdated() is called from within executeAutomation.
+			return runNow(id)
 		}),
 	)
 
@@ -536,17 +552,35 @@ export function registerIpcHandlers(): void {
 
 	ipcMain.handle(
 		"automation:archive-run",
-		withLogging("automation:archive-run", (_, runId: string) => archiveRun(runId)),
+		withLogging("automation:archive-run", async (_, runId: string) => {
+			const result = await archiveRun(runId)
+			for (const win of BrowserWindow.getAllWindows()) {
+				win.webContents.send("automation:runs-updated")
+			}
+			return result
+		}),
 	)
 
 	ipcMain.handle(
 		"automation:accept-run",
-		withLogging("automation:accept-run", (_, runId: string) => acceptRun(runId)),
+		withLogging("automation:accept-run", async (_, runId: string) => {
+			const result = await acceptRun(runId)
+			for (const win of BrowserWindow.getAllWindows()) {
+				win.webContents.send("automation:runs-updated")
+			}
+			return result
+		}),
 	)
 
 	ipcMain.handle(
 		"automation:mark-run-read",
-		withLogging("automation:mark-run-read", (_, runId: string) => markRunRead(runId)),
+		withLogging("automation:mark-run-read", async (_, runId: string) => {
+			const result = await markRunRead(runId)
+			for (const win of BrowserWindow.getAllWindows()) {
+				win.webContents.send("automation:runs-updated")
+			}
+			return result
+		}),
 	)
 
 	ipcMain.handle(

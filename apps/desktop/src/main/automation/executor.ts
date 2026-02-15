@@ -264,19 +264,51 @@ function parseActionable(text: string): boolean {
 }
 
 // ============================================================
+// Model resolution
+// ============================================================
+
+/**
+ * Parses a model string in "providerID/modelID" format into the object
+ * shape expected by the OpenCode SDK. Returns undefined if the string
+ * is empty or malformed.
+ */
+function parseModelRef(modelStr: string): { providerID: string; modelID: string } | undefined {
+	if (!modelStr) return undefined
+	const slashIndex = modelStr.indexOf("/")
+	if (slashIndex <= 0 || slashIndex === modelStr.length - 1) return undefined
+	return {
+		providerID: modelStr.slice(0, slashIndex),
+		modelID: modelStr.slice(slashIndex + 1),
+	}
+}
+
+// ============================================================
 // Main executor
 // ============================================================
+
+/**
+ * Callback fired as soon as the OpenCode session is created, before the
+ * prompt is sent and monitoring begins. This allows the caller to persist
+ * the sessionId immediately so the renderer can show the live session.
+ */
+export type OnSessionCreated = (info: {
+	sessionId: string
+	worktreePath: string | null
+}) => void | Promise<void>
 
 /**
  * Executes a single automation run against a workspace.
  *
  * @param config      The automation config (from disk)
  * @param workspace   The project directory to run against
+ * @param onSessionCreated  Optional callback invoked as soon as the session
+ *                          is created, before monitoring begins
  * @returns Execution result with session info, summary, and actionability
  */
 export async function executeRun(
 	config: AutomationConfig & { id: string; prompt: string },
 	workspace: string,
+	onSessionCreated?: OnSessionCreated,
 ): Promise<ExecutionResult> {
 	const client = createAutomationClient(workspace)
 	if (!client) {
@@ -355,13 +387,27 @@ export async function executeRun(
 			worktreePath,
 		})
 
+		// Notify caller immediately so sessionId can be persisted and the
+		// renderer can start showing the live session view
+		if (onSessionCreated) {
+			try {
+				await onSessionCreated({ sessionId, worktreePath })
+			} catch (cbErr) {
+				log.warn("onSessionCreated callback failed", cbErr)
+			}
+		}
+
 		// --- Step 3: Send prompt ---
 		const systemPrompt = buildSystemPrompt(config.id, config.name)
+
+		// Parse model string (format: "providerID/modelID") if configured
+		const model = config.execution.model ? parseModelRef(config.execution.model) : undefined
 
 		await sessionClient.session.promptAsync({
 			sessionID: sessionId,
 			system: systemPrompt,
 			parts: [{ type: "text", text: config.prompt }],
+			model,
 		})
 
 		log.info("Prompt sent, monitoring session", { sessionId })
