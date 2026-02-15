@@ -237,6 +237,26 @@ export function AppSidebarContent({
 					</div>
 				)}
 
+				{/* Automations */}
+				{automationsEnabled && (
+					<SidebarGroup>
+						<SidebarGroupContent>
+							<SidebarMenu>
+								<SidebarMenuItem>
+									<SidebarMenuButton
+										tooltip="Automations"
+										onClick={() => navigate({ to: "/automations" })}
+										className="text-muted-foreground"
+									>
+										<BotIcon className="size-4" />
+										<span>Automations</span>
+									</SidebarMenuButton>
+								</SidebarMenuItem>
+							</SidebarMenu>
+						</SidebarGroupContent>
+					</SidebarGroup>
+				)}
+
 				{/* Active Now */}
 				{activeSessions.length > 0 && (
 					<SidebarGroup>
@@ -363,18 +383,6 @@ export function AppSidebarContent({
 			<SidebarFooter className="space-y-0 p-2">
 				<ServerIndicator />
 				<SidebarMenu>
-					{automationsEnabled && (
-						<SidebarMenuItem>
-							<SidebarMenuButton
-								tooltip="Automations"
-								onClick={() => navigate({ to: "/automations" })}
-								className="text-muted-foreground"
-							>
-								<BotIcon className="size-4" />
-								<span>Automations</span>
-							</SidebarMenuButton>
-						</SidebarMenuItem>
-					)}
 					<SidebarMenuItem>
 						<SidebarMenuButton
 							tooltip="Settings"
