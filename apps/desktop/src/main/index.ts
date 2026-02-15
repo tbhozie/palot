@@ -132,9 +132,13 @@ async function createWindow(): Promise<BrowserWindow> {
 		backgroundColor: "#00000000",
 		// Three-tier window chrome — options from resolveWindowChrome()
 		...chrome.options,
-		// Set window icon for dev mode on Linux/Windows (macOS uses the .app bundle icon)
+		// Set window icon for Linux/Windows (macOS uses the .app bundle icon).
+		// In packaged builds, icon.png lives in process.resourcesPath (via extraResources).
+		// In dev mode, it's at the project's resources/ directory.
 		...(!isMac && {
-			icon: path.join(__dirname, "../../resources/icon.png"),
+			icon: app.isPackaged
+				? path.join(process.resourcesPath, "icon.png")
+				: path.join(__dirname, "../../resources/icon.png"),
 		}),
 		webPreferences: {
 			preload: path.join(__dirname, "../preload/index.cjs"),

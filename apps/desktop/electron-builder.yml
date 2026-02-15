@@ -59,7 +59,8 @@ win:
       arch: [x64, arm64]
 
 linux:
-  icon: resources/icon.png
+  executableName: palot
+  icon: resources/linux-icons
   target:
     - target: AppImage
       arch: [x64]
@@ -74,6 +75,7 @@ linux:
       Name: Palot
       Comment: AI-powered coding assistant
       Categories: Development;IDE;
+      StartupWMClass: Palot
 
 nsis:
   oneClick: false
