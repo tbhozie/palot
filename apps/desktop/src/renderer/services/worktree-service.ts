@@ -48,6 +48,92 @@ export interface RemoteApplyResult {
 }
 
 // ============================================================
+// Name generation
+// ============================================================
+
+/** Space-themed word lists for friendly worktree names (29 x 31 = 899 combos). */
+const ADJECTIVES = [
+	"astral",
+	"binary",
+	"blazing",
+	"crimson",
+	"cryo",
+	"dark",
+	"drifting",
+	"fading",
+	"frozen",
+	"hyper",
+	"ionic",
+	"laser",
+	"liquid",
+	"lunar",
+	"magnetic",
+	"molten",
+	"neon",
+	"nova",
+	"orbital",
+	"phantom",
+	"plasma",
+	"polar",
+	"pulse",
+	"quantum",
+	"radiant",
+	"silent",
+	"solar",
+	"void",
+	"warp",
+] as const
+
+const NOUNS = [
+	"apex",
+	"array",
+	"atlas",
+	"beacon",
+	"bolt",
+	"comet",
+	"core",
+	"cosmos",
+	"cruiser",
+	"drift",
+	"eclipse",
+	"flare",
+	"flux",
+	"forge",
+	"gate",
+	"horizon",
+	"meteor",
+	"nebula",
+	"orbit",
+	"photon",
+	"probe",
+	"pulsar",
+	"quasar",
+	"reactor",
+	"relay",
+	"rift",
+	"shard",
+	"signal",
+	"spark",
+	"vortex",
+	"zenith",
+] as const
+
+function pick<const T extends readonly string[]>(list: T): string {
+	return list[Math.floor(Math.random() * list.length)]
+}
+
+/**
+ * Generates a friendly random worktree name using an adjective-noun pair.
+ * Examples: "brave-falcon", "neon-pixel", "cosmic-meadow".
+ *
+ * The server handles collision checking and will append its own suffix if needed,
+ * so we don't need to deduplicate on the client side.
+ */
+export function randomWorktreeName(): string {
+	return `${pick(ADJECTIVES)}-${pick(NOUNS)}`
+}
+
+// ============================================================
 // Helpers
 // ============================================================
 
