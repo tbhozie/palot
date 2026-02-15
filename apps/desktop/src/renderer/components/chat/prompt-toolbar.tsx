@@ -35,6 +35,7 @@ import { messagesFamily } from "../../atoms/messages"
 import type { DisplayMode } from "../../atoms/preferences"
 import { useDisplayMode, useSetDisplayMode } from "../../hooks/use-agents"
 import type {
+	CompactionConfig,
 	ModelRef,
 	ProvidersData,
 	SdkAgent,
@@ -46,6 +47,7 @@ import {
 	computeContextUsage,
 	formatCost,
 	formatPercentage,
+	type ModelLimitInfo,
 	shortModelName,
 } from "../../lib/session-metrics"
 import { ProviderIcon } from "../settings/provider-icon"
@@ -554,6 +556,8 @@ interface StatusBarProps {
 	providers?: ProvidersData | null
 	/** Total session cost (USD) for display in the context tooltip */
 	sessionCost?: number
+	/** Compaction config from OpenCode for accurate threshold calculation */
+	compaction?: CompactionConfig
 }
 
 const DISPLAY_MODE_CYCLE: DisplayMode[] = ["default", "compact", "verbose"]
@@ -578,6 +582,7 @@ export function StatusBar({
 	sessionId,
 	providers,
 	sessionCost,
+	compaction,
 }: StatusBarProps) {
 	const displayMode = useDisplayMode()
 	const setDisplayMode = useSetDisplayMode()
@@ -642,6 +647,7 @@ export function StatusBar({
 						sessionId={sessionId}
 						providers={providers}
 						sessionCost={sessionCost}
+						compaction={compaction}
 					/>
 				)}
 
@@ -675,29 +681,36 @@ function ContextUsageIndicator({
 	sessionId,
 	providers,
 	sessionCost,
+	compaction,
 }: {
 	sessionId: string
 	providers?: ProvidersData | null
 	sessionCost?: number
+	compaction?: CompactionConfig
 }) {
 	const messages = useAtomValue(messagesFamily(sessionId))
 
-	const getContextLimit = useCallback(
-		(providerID: string, modelID: string): number | undefined => {
+	const getModelLimit = useCallback(
+		(providerID: string, modelID: string): ModelLimitInfo | undefined => {
 			if (!providers?.providers) return undefined
 			for (const provider of providers.providers) {
 				if (provider.id !== providerID) continue
 				const model = provider.models[modelID]
-				if (model?.limit?.context) return model.limit.context
+				if (model?.limit?.context) return model.limit
 			}
 			return undefined
 		},
 		[providers],
 	)
 
+	const compactionOptions = useMemo(
+		() => (compaction ? { auto: compaction.auto, reserved: compaction.reserved } : undefined),
+		[compaction],
+	)
+
 	const usage = useMemo(
-		() => computeContextUsage(messages, getContextLimit),
-		[messages, getContextLimit],
+		() => computeContextUsage(messages, getModelLimit, compactionOptions),
+		[messages, getModelLimit, compactionOptions],
 	)
 
 	if (!usage) return null
@@ -705,6 +718,14 @@ function ContextUsageIndicator({
 	const pct = usage.percentage
 	const color = pct >= 90 ? "text-red-400" : pct >= 70 ? "text-yellow-400" : ""
 	const costStr = sessionCost != null && sessionCost > 0 ? formatCost(sessionCost) : null
+
+	const compPct = usage.compactionPercentage
+	const compColor =
+		compPct != null && compPct >= 100
+			? "text-red-400"
+			: compPct != null && compPct >= 80
+				? "text-yellow-400"
+				: "text-background/60"
 
 	return (
 		<Tooltip>
@@ -742,6 +763,22 @@ function ContextUsageIndicator({
 						<span>Model</span>
 						<span className="text-right">{shortModelName(usage.modelID)}</span>
 					</div>
+					{usage.compactionThreshold != null && compPct != null && (
+						<div className="border-t border-background/15 pt-1">
+							<div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-background/60">
+								<span>Compaction</span>
+								<span className={cn("text-right tabular-nums", compColor)}>
+									{compPct >= 100 ? "now" : `at ${usage.compactionThreshold.toLocaleString()}`}
+								</span>
+								<span>Remaining</span>
+								<span className={cn("text-right tabular-nums", compColor)}>
+									{compPct >= 100
+										? "overflowed"
+										: `${(usage.compactionThreshold - usage.lastMessageTokens).toLocaleString()} tokens`}
+								</span>
+							</div>
+						</div>
+					)}
 					{costStr && (
 						<p className="border-t border-background/15 pt-1 text-background/60">
 							Session cost: {costStr}

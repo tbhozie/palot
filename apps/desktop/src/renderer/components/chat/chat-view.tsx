@@ -1316,6 +1316,7 @@ export function ChatView({
 							sessionId={agent.sessionId}
 							providers={providers}
 							sessionCost={sessionMetrics.costRaw}
+							compaction={config?.compaction}
 							extraSlot={
 								agent.worktreePath ? (
 									<div className="flex items-center gap-1">

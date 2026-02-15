@@ -34,10 +34,18 @@ export interface VcsData {
 	branch: string
 }
 
+export interface CompactionConfig {
+	/** Whether automatic compaction is enabled (default: true) */
+	auto?: boolean
+	/** Token buffer reserved for compaction (default: 20,000) */
+	reserved?: number
+}
+
 export interface ConfigData {
 	model?: string
 	smallModel?: string
 	defaultAgent?: string
+	compaction?: CompactionConfig
 }
 
 export interface ModelRef {
@@ -229,6 +237,9 @@ export function useConfig(directory: string | null): {
 				model: raw.model,
 				smallModel: raw.small_model,
 				defaultAgent: raw.default_agent,
+				compaction: raw.compaction
+					? { auto: raw.compaction.auto, reserved: raw.compaction.reserved }
+					: undefined,
 			}
 		},
 		enabled: !!directory && connected && !isMockMode,

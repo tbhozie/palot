@@ -369,6 +369,48 @@ export interface ContextUsage {
 	providerID: string
 	/** Model ID of the last assistant message */
 	modelID: string
+	/** Token count at which compaction will trigger (null if unknown) */
+	compactionThreshold: number | null
+	/** Usage percentage toward compaction threshold 0-100 (null if unknown) */
+	compactionPercentage: number | null
+}
+
+/** Default buffer reserved for output tokens before compaction. */
+const COMPACTION_BUFFER = 20_000
+
+/** Maximum output tokens OpenCode will request (capped at this value). */
+const OUTPUT_TOKEN_MAX = 32_000
+
+/**
+ * Compute the compaction threshold for a model, mirroring the logic from
+ * opencode's `SessionCompaction.isOverflow`. Returns the usable token count
+ * above which compaction will be triggered.
+ *
+ * @param limit - The model's token limits
+ * @param configReserved - Optional override from `config.compaction.reserved`
+ */
+export function computeCompactionThreshold(
+	limit: { context: number; input?: number; output: number },
+	configReserved?: number,
+): number {
+	const maxOutput = Math.min(limit.output, OUTPUT_TOKEN_MAX) || OUTPUT_TOKEN_MAX
+	const reserved = configReserved ?? Math.min(COMPACTION_BUFFER, maxOutput)
+	return limit.input ? limit.input - reserved : limit.context - maxOutput
+}
+
+/** Model limit info returned by the lookup callback. */
+export interface ModelLimitInfo {
+	context: number
+	input?: number
+	output: number
+}
+
+/** Compaction config from the OpenCode server, used to compute accurate thresholds. */
+export interface CompactionOptions {
+	/** Whether auto-compaction is enabled (default: true) */
+	auto?: boolean
+	/** User-configured reserved token buffer (overrides the default 20k) */
+	reserved?: number
 }
 
 /**
@@ -380,12 +422,14 @@ export interface ContextUsage {
  * the model's context limit is unavailable.
  *
  * @param messages - All messages in the session
- * @param getContextLimit - Callback to look up a model's context limit
+ * @param getModelLimit - Callback to look up a model's limit info
  *   given `(providerID, modelID)`. Returns `undefined` if unknown.
+ * @param compaction - Optional compaction config from the server
  */
 export function computeContextUsage(
 	messages: Message[],
-	getContextLimit: (providerID: string, modelID: string) => number | undefined,
+	getModelLimit: (providerID: string, modelID: string) => ModelLimitInfo | undefined,
+	compaction?: CompactionOptions,
 ): ContextUsage | null {
 	// Find the last assistant message with token data (walking backwards)
 	for (let i = messages.length - 1; i >= 0; i--) {
@@ -402,15 +446,24 @@ export function computeContextUsage(
 			(t.cache?.write ?? 0)
 		if (total <= 0) continue
 
-		const limit = getContextLimit(msg.providerID, msg.modelID)
-		if (!limit || limit <= 0) return null
+		const limit = getModelLimit(msg.providerID, msg.modelID)
+		if (!limit || limit.context <= 0) return null
+
+		// Only compute compaction if auto-compaction is not explicitly disabled
+		const compactionEnabled = compaction?.auto !== false
+		const threshold = compactionEnabled
+			? computeCompactionThreshold(limit, compaction?.reserved)
+			: null
 
 		return {
 			lastMessageTokens: total,
-			contextLimit: limit,
-			percentage: Math.round((total / limit) * 100),
+			contextLimit: limit.context,
+			percentage: Math.round((total / limit.context) * 100),
 			providerID: msg.providerID,
 			modelID: msg.modelID,
+			compactionThreshold: threshold != null && threshold > 0 ? threshold : null,
+			compactionPercentage:
+				threshold != null && threshold > 0 ? Math.round((total / threshold) * 100) : null,
 		}
 	}
 	return null
