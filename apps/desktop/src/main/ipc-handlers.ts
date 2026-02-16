@@ -89,6 +89,7 @@ async function handleFetchProxy(
 	_event: Electron.IpcMainInvokeEvent,
 	req: SerializedRequest,
 ): Promise<SerializedResponse> {
+	log.info("IPC fetch proxy →", { method: req.method, url: req.url })
 	const response = await net.fetch(req.url, {
 		method: req.method,
 		headers: req.headers,
@@ -99,6 +100,13 @@ async function handleFetchProxy(
 	const headers: Record<string, string> = {}
 	response.headers.forEach((value, key) => {
 		headers[key] = value
+	})
+
+	log.info("IPC fetch proxy ←", {
+		method: req.method,
+		url: req.url,
+		status: response.status,
+		bodyLength: body.length,
 	})
 
 	return {

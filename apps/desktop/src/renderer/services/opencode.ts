@@ -129,10 +129,10 @@ function createIpcFetch(authHeader?: string): typeof fetch {
 			body,
 		}
 
-		log.debug("IPC fetch", { method: request.method, url: request.url })
+		log.info("IPC fetch →", { method: request.method, url: request.url })
 		// Send through IPC → main process → net.fetch() → back
 		const result = await window.palot.fetch(serialized)
-		log.debug("IPC fetch result", {
+		log.info("IPC fetch ←", {
 			method: request.method,
 			url: request.url,
 			status: result.status,
@@ -229,11 +229,26 @@ export async function listProjects(client: OpencodeClient): Promise<OpenCodeProj
 }
 
 /**
- * Fetch all sessions from a server.
+ * Fetch sessions from a server with optional filtering/pagination.
+ *
+ * @param limit  Maximum number of sessions to return (server default: 100)
+ * @param roots  Only return root sessions (no sub-agents)
+ * @param search Filter sessions by title (case-insensitive substring match)
  */
-export async function listSessions(client: OpencodeClient): Promise<Session[]> {
-	const result = await client.session.list()
-	return (result.data as Session[]) ?? []
+export async function listSessions(
+	client: OpencodeClient,
+	options?: { limit?: number; roots?: boolean; search?: string },
+): Promise<Session[]> {
+	const params = {
+		limit: options?.limit,
+		roots: options?.roots,
+		search: options?.search,
+	}
+	log.info("Listing sessions", params)
+	const result = await client.session.list(params)
+	const sessions = (result.data as Session[]) ?? []
+	log.info("Listed sessions", { count: sessions.length, ...params })
+	return sessions
 }
 
 /**
