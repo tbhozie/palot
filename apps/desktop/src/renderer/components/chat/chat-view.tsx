@@ -15,7 +15,8 @@ import {
 	usePromptInputAttachments,
 	usePromptInputController,
 } from "@palot/ui/components/ai-elements/prompt-input"
-import { useAtomValue } from "jotai"
+import { cn } from "@palot/ui/lib/utils"
+import { useAtomValue, useSetAtom } from "jotai"
 import {
 	ArrowUpToLineIcon,
 	ChevronUpIcon,
@@ -26,6 +27,7 @@ import {
 	Redo2Icon,
 	SquareIcon,
 	Undo2Icon,
+	XIcon,
 } from "lucide-react"
 import {
 	useCallback,
@@ -63,6 +65,11 @@ import { getProjectClient } from "../../services/connection-manager"
 
 const log = createLogger("chat-view")
 
+import {
+	type DiffComment,
+	diffCommentsFamily,
+	serializeCommentsForChat,
+} from "../review/review-comments"
 import { PermissionItem } from "./chat-permission"
 import { ChatQuestionFlow } from "./chat-question"
 import { ChatTurnComponent } from "./chat-turn"
@@ -406,6 +413,8 @@ interface ChatViewProps {
 	isReverted?: boolean
 	/** Revert to a specific message (for per-turn undo) */
 	onRevertToMessage?: (messageId: string) => Promise<void>
+	/** Whether the review panel is open (removes max-w constraint) */
+	reviewPanelOpen?: boolean
 }
 
 /**
@@ -441,6 +450,7 @@ export function ChatView({
 	onRedo,
 	isReverted,
 	onRevertToMessage,
+	reviewPanelOpen,
 }: ChatViewProps) {
 	const isWorking = agent.status === "running"
 
@@ -555,15 +565,20 @@ export function ChatView({
 		return () => document.removeEventListener("keydown", handleKeyDown)
 	}, [canUndo, canRedo, onUndo, onRedo])
 
+	// Width constraint class: remove max-w when review panel is open
+	const contentWidthClass = reviewPanelOpen
+		? "mx-auto w-full min-w-0"
+		: "mx-auto w-full min-w-0 max-w-4xl"
+
 	return (
 		<div className="flex h-full min-w-0 flex-col overflow-hidden">
-			{/* Chat messages — constrained width for readability */}
+			{/* Chat messages -- constrained width for readability */}
 			<div className="relative min-h-0 min-w-0 flex-1">
 				<Conversation key={agent.sessionId} className="h-full">
 					<ScrollOnLoad loading={loading} sessionId={agent.sessionId} />
 					<ScrollBridge scrollRef={scrollRef} />
 					<ConversationContent className="gap-10 px-4 py-6">
-						<div className="mx-auto w-full min-w-0 max-w-4xl space-y-10">
+						<div className={cn(contentWidthClass, "space-y-10")}>
 							{/* Load earlier messages button */}
 							{hasEarlierMessages && (
 								<div className="flex justify-center pb-4">
@@ -660,6 +675,7 @@ export function ChatView({
 					onRedo={onRedo}
 					isReverted={isReverted}
 					scrollRef={scrollRef}
+					reviewPanelOpen={reviewPanelOpen}
 				/>
 			)}
 		</div>
@@ -690,6 +706,7 @@ interface ChatInputSectionProps {
 	onRedo?: () => Promise<void>
 	isReverted?: boolean
 	scrollRef: React.RefObject<ScrollHandle | null>
+	reviewPanelOpen?: boolean
 }
 
 function ChatInputSection({
@@ -712,8 +729,13 @@ function ChatInputSection({
 	onRedo,
 	isReverted,
 	scrollRef,
+	reviewPanelOpen,
 }: ChatInputSectionProps) {
 	const [sending, setSending] = useState(false)
+
+	// Diff comments integration
+	const diffComments = useAtomValue(diffCommentsFamily(agent.sessionId))
+	const setDiffComments = useSetAtom(diffCommentsFamily(agent.sessionId))
 
 	// Work time split for the current (last) turn — used for the live timer on the submit button.
 	const currentTurnWorkSplit = useMemo(() => {
@@ -972,7 +994,12 @@ function ChatInputSection({
 					variant: selectedVariant,
 					hasFiles: !!(files && files.length > 0),
 				})
-				await onSendMessage(agent, text.trim(), {
+
+				// Prepend diff comments as structured context if any exist
+				const commentPrefix = serializeCommentsForChat(diffComments)
+				const finalText = commentPrefix ? `${commentPrefix}${text.trim()}` : text.trim()
+
+				await onSendMessage(agent, finalText, {
 					model: effectiveModel ?? undefined,
 					agentName: selectedAgent || undefined,
 					variant: selectedVariant,
@@ -981,6 +1008,10 @@ function ChatInputSection({
 				log.debug("handleSend onSendMessage completed", { sessionId: agent.sessionId })
 				clearDraft()
 				setMentions([])
+				// Clear diff comments after successful send
+				if (diffComments.length > 0) {
+					setDiffComments([])
+				}
 				requestAnimationFrame(() => {
 					scrollRef.current?.scrollToBottom("smooth")
 				})
@@ -1000,6 +1031,8 @@ function ChatInputSection({
 			clearDraft,
 			handleSlashCommand,
 			scrollRef,
+			diffComments,
+			setDiffComments,
 		],
 	)
 
@@ -1166,10 +1199,15 @@ function ChatInputSection({
 		[slashOpen, mentionOpen, handleEscapeAbort],
 	)
 
+	// Width constraint class: remove max-w when review panel is open
+	const inputWidthClass = reviewPanelOpen
+		? "mx-auto w-full min-w-0"
+		: "mx-auto w-full min-w-0 max-w-4xl"
+
 	return (
 		<>
 			<div className="min-w-0 px-4 pb-4 pt-2">
-				<div className="mx-auto w-full min-w-0 max-w-4xl">
+				<div className={inputWidthClass}>
 					{/* Session task list — collapsible todo progress */}
 					<SessionTaskList sessionId={agent.sessionId} />
 
@@ -1263,6 +1301,13 @@ function ChatInputSection({
 								>
 									{/* Mention chips above the textarea */}
 									<ContextItems mentions={mentions} onRemove={handleMentionRemove} />
+									{/* Diff comment chips above the textarea */}
+									{diffComments.length > 0 && (
+										<DiffCommentChips
+											comments={diffComments}
+											onRemove={(id) => setDiffComments((prev) => prev.filter((c) => c.id !== id))}
+										/>
+									)}
 									<PromptAttachmentPreview
 										supportsImages={modelCapabilities?.image}
 										supportsPdf={modelCapabilities?.pdf}
@@ -1418,6 +1463,48 @@ function WorktreeSetupProgress({ phase }: { phase: NonNullable<SessionSetupPhase
 					Setting up an isolated workspace for this session
 				</p>
 			</div>
+		</div>
+	)
+}
+
+// ============================================================
+// Diff comment chips shown above the chat input
+// ============================================================
+
+function DiffCommentChips({
+	comments,
+	onRemove,
+}: {
+	comments: DiffComment[]
+	onRemove: (id: string) => void
+}) {
+	if (comments.length === 0) return null
+
+	return (
+		<div className="flex flex-wrap gap-1 px-1 pt-1">
+			{comments.map((comment) => {
+				const fileName = comment.filePath.split("/").pop() ?? comment.filePath
+				return (
+					<span
+						key={comment.id}
+						className="inline-flex max-w-full items-center gap-1 rounded-md border border-primary/20 bg-primary/5 px-1.5 py-0.5 text-[10px] leading-tight"
+					>
+						<span className="shrink-0 font-mono text-muted-foreground">
+							{fileName}:{comment.lineNumber}
+						</span>
+						<span className="truncate text-foreground">
+							{comment.content.length > 40 ? `${comment.content.slice(0, 40)}...` : comment.content}
+						</span>
+						<button
+							type="button"
+							onClick={() => onRemove(comment.id)}
+							className="shrink-0 text-muted-foreground/60 hover:text-foreground"
+						>
+							<XIcon className="size-2.5" />
+						</button>
+					</span>
+				)
+			})}
 		</div>
 	)
 }

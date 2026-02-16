@@ -86,6 +86,7 @@ export function SessionTaskList({ sessionId }: SessionTaskListProps) {
 	)
 
 	// Auto-scroll to the bottom when todos change (new tasks added / status updates)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: scroll on todo changes intentionally
 	useEffect(() => {
 		if (isExpanded && scrollRef.current) {
 			scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })

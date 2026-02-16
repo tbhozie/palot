@@ -18,6 +18,7 @@ import {
 import { appStore } from "../store"
 import { isStreamingField, isStreamingPartType, streamingVersionFamily } from "../streaming"
 import { todosFamily } from "../todos"
+import { setSessionDiffAtom } from "../ui"
 
 const log = createLogger("event-processor")
 
@@ -206,6 +207,17 @@ export function processEvent(event: Event): void {
 		case "todo.updated":
 			set(todosFamily(event.properties.sessionID), event.properties.todos)
 			break
+
+		case "session.diff": {
+			const { sessionID, diff } = event.properties as {
+				sessionID: string
+				diff: import("../../lib/types").FileDiff[]
+			}
+			if (sessionID && diff) {
+				set(setSessionDiffAtom, { sessionId: sessionID, diffs: diff })
+			}
+			break
+		}
 
 		// --- Worktree lifecycle events (from OpenCode experimental API) ---
 
