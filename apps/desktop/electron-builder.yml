@@ -28,6 +28,8 @@ extraResources:
     to: iconTemplate@2x.png
   - from: resources/icon.png
     to: icon.png
+  - from: resources/iconTray.png
+    to: iconTray.png
 
 # Rebuild native modules for Electron's Node.js ABI during packaging.
 npmRebuild: true

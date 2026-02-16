@@ -36,6 +36,7 @@ const __dirname = path.dirname(__filename)
 // ============================================================
 
 const IS_MAC = process.platform === "darwin"
+const IS_LINUX = process.platform === "linux"
 
 /** Max agents shown per project before "View More" submenu kicks in. */
 const MAX_AGENTS_INLINE = 3
@@ -91,6 +92,15 @@ export function createTray(windowGetter: () => BrowserWindow | undefined): void 
 		}
 		icon = nativeImage.createFromPath(templatePath)
 		icon.setTemplateImage(true)
+	} else if (IS_LINUX) {
+		// Linux: use 22x22 icon (standard tray size), fallback to icon.png if not available
+		const trayIconPath = path.join(resourcesPath, "iconTray.png")
+		if (!fs.existsSync(trayIconPath)) {
+			log.warn(`Tray icon not found at ${trayIconPath} — falling back to icon.png`)
+		}
+		icon = fs.existsSync(trayIconPath)
+			? nativeImage.createFromPath(trayIconPath)
+			: nativeImage.createFromPath(path.join(resourcesPath, "icon.png"))
 	} else {
 		const iconPath = path.join(resourcesPath, "icon.png")
 		if (!fs.existsSync(iconPath)) {
@@ -123,7 +133,7 @@ export function createTray(windowGetter: () => BrowserWindow | undefined): void 
 	// Build initial menu
 	rebuildMenu()
 
-	log.info(`Tray created (template: ${IS_MAC})`)
+	log.info(`Tray created (platform: ${IS_MAC ? "macOS" : IS_LINUX ? "Linux" : "Windows"})`)
 }
 
 export function destroyTray(): void {
