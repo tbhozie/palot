@@ -38,6 +38,7 @@ import {
 import type { ReactNode } from "react"
 import { memo, useMemo } from "react"
 import type { BundledLanguage } from "shiki"
+import { getPartFirstSeenAt } from "../../atoms/parts"
 import { detectContentLanguage, detectLanguage, prettyPrintJson } from "../../lib/language"
 import type { FilePart, ToolPart, ToolStateCompleted } from "../../lib/types"
 import { SubAgentCard } from "./sub-agent-card"
@@ -351,11 +352,21 @@ function shortenPath(path: string | undefined): string | undefined {
 
 /**
  * Compute tool duration from state times.
+ *
+ * Prefers the client-side "first seen" timestamp (when the tool card first
+ * appeared to the user, typically at the "pending" state) over the server-side
+ * `time.start` (which only marks when execution began, after argument streaming).
+ * This gives a wall-clock duration that matches what the user experienced.
+ *
+ * Falls back to `state.time.start` for parts loaded from REST (page refresh,
+ * reconnect) where no client-side timestamp is available.
  */
 export function getToolDuration(part: ToolPart): string | undefined {
 	const state = part.state
 	if (state.status === "completed" || state.status === "error") {
-		const ms = state.time.end - state.time.start
+		const firstSeen = getPartFirstSeenAt(part.id)
+		const start = firstSeen ?? state.time.start
+		const ms = state.time.end - start
 		if (ms < 1000) return `${ms}ms`
 		const seconds = Math.floor(ms / 1000)
 		if (seconds < 60) return `${seconds}s`
