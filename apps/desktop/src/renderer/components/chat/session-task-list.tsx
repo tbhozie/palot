@@ -9,7 +9,7 @@ import {
 	Loader2Icon,
 	XCircleIcon,
 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { messagesFamily } from "../../atoms/messages"
 import { partsFamily } from "../../atoms/parts"
 import { appStore } from "../../atoms/store"
@@ -78,11 +78,19 @@ interface SessionTaskListProps {
 export function SessionTaskList({ sessionId }: SessionTaskListProps) {
 	const todos = useSessionTodos(sessionId)
 	const [isExpanded, setIsExpanded] = useState(true)
+	const scrollRef = useRef<HTMLDivElement>(null)
 
 	const completedCount = useMemo(
 		() => todos.filter((t) => t.status === "completed").length,
 		[todos],
 	)
+
+	// Auto-scroll to the bottom when todos change (new tasks added / status updates)
+	useEffect(() => {
+		if (isExpanded && scrollRef.current) {
+			scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
+		}
+	}, [todos, isExpanded])
 
 	// Don't render anything if there are no todos
 	if (todos.length === 0) return null
@@ -114,9 +122,12 @@ export function SessionTaskList({ sessionId }: SessionTaskListProps) {
 				)}
 			</button>
 
-			{/* Expanded content — task list */}
+			{/* Expanded content — task list (capped height with scroll) */}
 			{isExpanded && (
-				<div className="border-t border-border px-3 pb-2.5 pt-2">
+				<div
+					ref={scrollRef}
+					className="max-h-48 overflow-y-auto border-t border-border px-3 pb-2.5 pt-2"
+				>
 					<ol className="space-y-1">
 						{todos.map((todo, index) => (
 							// biome-ignore lint/suspicious/noArrayIndexKey: Todo items have no stable ID in the v2 SDK
