@@ -57,6 +57,9 @@ export default defineConfig({
 				"@palot/ui": path.resolve(__dirname, "../../packages/ui/src"),
 			},
 		},
+		worker: {
+			format: "es",
+		},
 		server: {
 			port: 1420,
 			strictPort: true,

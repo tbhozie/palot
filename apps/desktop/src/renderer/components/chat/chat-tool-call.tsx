@@ -17,10 +17,12 @@ import {
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@palot/ui/components/dialog"
 import { cn } from "@palot/ui/lib/utils"
 
+import { useSetAtom } from "jotai"
 import {
 	AlertTriangleIcon,
 	BookOpenIcon,
 	CodeIcon,
+	DiffIcon,
 	EditIcon,
 	EyeIcon,
 	FileCodeIcon,
@@ -36,9 +38,10 @@ import {
 	ZapIcon,
 } from "lucide-react"
 import type { ReactNode } from "react"
-import { memo, useMemo } from "react"
+import { memo, useCallback, useMemo } from "react"
 import type { BundledLanguage } from "shiki"
 import { getPartFirstSeenAt } from "../../atoms/parts"
+import { viewFileInDiffPanelAtom } from "../../atoms/ui"
 import { detectContentLanguage, detectLanguage, prettyPrintJson } from "../../lib/language"
 import type { FilePart, ToolPart, ToolStateCompleted } from "../../lib/types"
 import { SubAgentCard } from "./sub-agent-card"
@@ -941,6 +944,8 @@ export const ChatToolCall = memo(
 		onApprove,
 		onDeny,
 	}: ChatToolCallProps) {
+		const viewFileInDiff = useSetAtom(viewFileInDiffPanelAtom)
+
 		// Compute diff stats for edit tools (shown in trailing area)
 		// Must be called before early returns to satisfy hooks rules.
 		const diffStats = useMemo(() => {
@@ -951,10 +956,26 @@ export const ChatToolCall = memo(
 			return computeDiffStats(oldString, newString)
 		}, [part.tool, part.state.input?.oldString, part.state.input?.newString])
 
+		// Extract file path for edit-category tools (used for "View diff" button)
+		const editFilePath = useMemo(() => {
+			if (part.tool !== "edit" && part.tool !== "write" && part.tool !== "apply_patch") {
+				return undefined
+			}
+			return (part.state.input?.filePath as string) ?? (part.state.input?.path as string)
+		}, [part.tool, part.state.input?.filePath, part.state.input?.path])
+
+		const handleViewDiff = useCallback(
+			(e: React.MouseEvent) => {
+				e.stopPropagation()
+				if (editFilePath) viewFileInDiff(editFilePath)
+			},
+			[editFilePath, viewFileInDiff],
+		)
+
 		const duration = getToolDuration(part)
 		const status = part.state.status as "running" | "error" | "completed" | "pending"
 
-		// Build trailing element: diff stats + duration/spinner
+		// Build trailing element: diff stats + "view diff" button + duration/spinner
 		// Must be called before early returns to satisfy hooks rules.
 		const trailingElement = useMemo(() => {
 			const parts: ReactNode[] = []
@@ -993,6 +1014,29 @@ export const ChatToolCall = memo(
 			return <span className="flex items-center gap-2.5">{parts}</span>
 		}, [diffStats, duration, status])
 
+		// Combine trailing element with "View diff" button for edit-category tools
+		const combinedTrailing = useMemo(() => {
+			if (!editFilePath || status !== "completed") return trailingElement
+			const viewButton = (
+				<button
+					key="view-diff"
+					type="button"
+					onClick={handleViewDiff}
+					className="rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-foreground"
+					title="View in diff panel"
+				>
+					<DiffIcon className="size-3" aria-hidden="true" />
+				</button>
+			)
+			if (!trailingElement) return viewButton
+			return (
+				<span className="flex items-center gap-2">
+					{trailingElement}
+					{viewButton}
+				</span>
+			)
+		}, [editFilePath, status, trailingElement, handleViewDiff])
+
 		// Skip rendering todoread parts without output
 		if (part.tool === "todoread" && part.state.status !== "completed") return null
 
@@ -1020,7 +1064,7 @@ export const ChatToolCall = memo(
 					icon={<Icon className="size-3.5" />}
 					title={title}
 					subtitle={subtitle}
-					trailing={trailingElement}
+					trailing={combinedTrailing}
 					category={category}
 					defaultOpen={defaultOpen}
 					forceOpen={

@@ -11,12 +11,14 @@ import { Popover, PopoverContent, PopoverTrigger } from "@palot/ui/components/po
 import { Tooltip, TooltipContent, TooltipTrigger } from "@palot/ui/components/tooltip"
 import { cn } from "@palot/ui/lib/utils"
 import { useNavigate, useParams } from "@tanstack/react-router"
+import { useAtom, useAtomValue } from "jotai"
 import {
 	ArrowLeftIcon,
 	CheckIcon,
 	ChevronDownIcon,
 	CopyIcon,
 	ExternalLinkIcon,
+	FileDiffIcon,
 	GitForkIcon,
 	PencilIcon,
 	SquareIcon,
@@ -25,6 +27,7 @@ import {
 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { OpenInTarget } from "../../preload/api"
+import { reviewPanelOpenAtom, reviewPanelSettingsAtom, sessionDiffStatsFamily } from "../atoms/ui"
 import type {
 	ConfigData,
 	ModelRef,
@@ -39,6 +42,7 @@ import { fetchOpenInTargets, isElectron, openInTarget } from "../services/backen
 import { useSetAppBarContent } from "./app-bar-context"
 import { ChatView } from "./chat"
 import { PalotWordmark } from "./palot-wordmark"
+import { ReviewPanel } from "./review/review-panel"
 import { SessionMetricsBar } from "./session-metrics-bar"
 import { WorktreeActions } from "./worktree-actions"
 
@@ -142,6 +146,28 @@ export function AgentDetail({
 	const [titleValue, setTitleValue] = useState(agent.name)
 	const titleInputRef = useRef<HTMLInputElement>(null)
 
+	// Review panel state
+	const [reviewPanelOpen, setReviewPanelOpen] = useAtom(reviewPanelOpenAtom)
+	const [reviewSettings, setReviewSettings] = useAtom(reviewPanelSettingsAtom)
+
+	// Keyboard shortcut: Cmd+Shift+D to toggle review panel
+	useEffect(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "d") {
+				e.preventDefault()
+				setReviewPanelOpen((prev) => !prev)
+			}
+			if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "f") {
+				e.preventDefault()
+				if (reviewPanelOpen) {
+					setReviewSettings((prev) => ({ ...prev, expanded: !prev.expanded }))
+				}
+			}
+		}
+		document.addEventListener("keydown", handleKeyDown)
+		return () => document.removeEventListener("keydown", handleKeyDown)
+	}, [setReviewPanelOpen, setReviewSettings, reviewPanelOpen])
+
 	const startEditingTitle = useCallback(() => {
 		if (!onRename) return
 		setTitleValue(agent.name)
@@ -184,6 +210,8 @@ export function AgentDetail({
 				onRename={onRename}
 				isConnected={isConnected}
 				projectSlug={projectSlug}
+				reviewPanelOpen={reviewPanelOpen}
+				onToggleReviewPanel={() => setReviewPanelOpen((prev) => !prev)}
 			/>,
 		)
 
@@ -201,11 +229,13 @@ export function AgentDetail({
 		isConnected,
 		projectSlug,
 		setAppBarContent,
+		reviewPanelOpen,
+		setReviewPanelOpen,
 	])
 
-	return (
-		<div className="flex h-full flex-col">
-			{/* Sub-agent breadcrumb — navigate back to parent */}
+	const chatContent = (
+		<>
+			{/* Sub-agent breadcrumb -- navigate back to parent */}
 			{agent.parentId && (
 				<button
 					type="button"
@@ -227,7 +257,7 @@ export function AgentDetail({
 				</button>
 			)}
 
-			{/* Chat — full height */}
+			{/* Chat -- full height */}
 			<div className="min-h-0 flex-1">
 				<ChatView
 					turns={chatTurns}
@@ -253,7 +283,26 @@ export function AgentDetail({
 					onRedo={onRedo}
 					isReverted={isReverted}
 					onRevertToMessage={onRevertToMessage}
+					reviewPanelOpen={reviewPanelOpen}
 				/>
+			</div>
+		</>
+	)
+
+	return (
+		<div className="flex h-full">
+			{/* Chat panel -- takes remaining space */}
+			<div className="min-w-0 flex-1 flex flex-col">{chatContent}</div>
+
+			{/* Review panel -- slides in/out from right */}
+			<div
+				className="shrink-0 overflow-hidden border-l border-border transition-[width] duration-250 ease-in-out"
+				style={{ width: reviewPanelOpen ? (reviewSettings.expanded ? "100%" : "40%") : 0 }}
+			>
+				{/* Keep ReviewPanel mounted so it retains state, just hidden at 0 width */}
+				<div className="h-full" style={{ minWidth: reviewSettings.expanded ? "100vw" : "40vw" }}>
+					<ReviewPanel sessionId={agent.sessionId} directory={agent.directory} />
+				</div>
 			</div>
 		</div>
 	)
@@ -276,6 +325,8 @@ function SessionAppBarContent({
 	onRename,
 	isConnected,
 	projectSlug,
+	reviewPanelOpen,
+	onToggleReviewPanel,
 }: {
 	agent: Agent
 	isEditingTitle: boolean
@@ -289,8 +340,11 @@ function SessionAppBarContent({
 	onRename?: (agent: Agent, title: string) => Promise<void>
 	isConnected?: boolean
 	projectSlug?: string
+	reviewPanelOpen: boolean
+	onToggleReviewPanel: () => void
 }) {
 	const navigate = useNavigate()
+	const diffStats = useAtomValue(sessionDiffStatsFamily(agent.sessionId))
 
 	return (
 		<div className="flex h-full w-full min-w-0 items-center gap-2.5">
@@ -368,6 +422,35 @@ function SessionAppBarContent({
 				{agent.worktreePath && <WorktreeActions agent={agent} />}
 
 				{agent.worktreePath && <div className="hidden h-3 w-px shrink-0 bg-border/60 md:block" />}
+
+				{/* Review panel toggle with change stats badge */}
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<button
+								type="button"
+								onClick={onToggleReviewPanel}
+								className={cn(
+									"flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors",
+									reviewPanelOpen
+										? "bg-muted text-foreground"
+										: "text-muted-foreground hover:bg-muted hover:text-foreground",
+								)}
+							/>
+						}
+					>
+						<FileDiffIcon className="size-3.5" />
+						{diffStats.fileCount > 0 && (
+							<span className="flex items-center gap-1 text-[11px]">
+								<span className="text-green-500">+{diffStats.additions}</span>
+								<span className="text-red-500">-{diffStats.deletions}</span>
+							</span>
+						)}
+					</TooltipTrigger>
+					<TooltipContent>
+						{reviewPanelOpen ? "Hide changes panel" : "Show changes panel"} (Cmd+Shift+D)
+					</TooltipContent>
+				</Tooltip>
 
 				{/* Status dot + label */}
 				<div className="hidden items-center gap-1.5 text-xs leading-none text-muted-foreground sm:flex">
