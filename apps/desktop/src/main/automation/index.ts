@@ -90,12 +90,11 @@ async function scheduleAndPersistNextRun(
 	rruleStr: string,
 	timezone: string,
 ): Promise<void> {
-	addTask(id, rruleStr, timezone, async () => {
+	const nextRunAt = await addTask(id, rruleStr, timezone, async () => {
 		await executeAutomation(id)
 	})
 
 	// Persist the computed nextRunAt
-	const nextRunAt = getNextRunTime(id)
 	const db = getDb()
 	await db
 		.update(automations)
@@ -498,12 +497,20 @@ async function executeAutomation(id: string, opts: ExecuteOptions = {}): Promise
 			broadcastRunsUpdated()
 		}
 
-		// Re-persist nextRunAt after rescheduling (scheduler already queued next timer)
-		const nextRunAt = getNextRunTime(id)
-		if (nextRunAt) {
+		// Re-persist nextRunAt (compute fresh since scheduler reschedules asynchronously)
+		const afterConfig = readConfig(id)
+		if (afterConfig && afterConfig.status === "active") {
+			const [nextDate] = await previewSchedule(
+				afterConfig.schedule.rrule,
+				afterConfig.schedule.timezone,
+				1,
+			)
 			await db
 				.update(automations)
-				.set({ nextRunAt: nextRunAt.getTime(), updatedAt: Date.now() })
+				.set({
+					nextRunAt: nextDate ? nextDate.getTime() : null,
+					updatedAt: Date.now(),
+				})
 				.where(eq(automations.id, id))
 				.run()
 		}
@@ -520,6 +527,10 @@ function mergeAutomation(
 	config: NonNullable<ReturnType<typeof readConfig>>,
 	timing?: typeof automations.$inferSelect | undefined,
 ): Automation {
+	// Prefer in-memory scheduler value (always up-to-date) over DB value (may be stale)
+	const schedulerNext = getNextRunTime(config.id)
+	const nextRunAt = schedulerNext ? schedulerNext.getTime() : (timing?.nextRunAt ?? null)
+
 	return {
 		id: config.id,
 		name: config.name,
@@ -528,7 +539,7 @@ function mergeAutomation(
 		schedule: config.schedule,
 		workspaces: config.workspaces,
 		execution: config.execution,
-		nextRunAt: timing?.nextRunAt ?? null,
+		nextRunAt,
 		lastRunAt: timing?.lastRunAt ?? null,
 		runCount: timing?.runCount ?? 0,
 		consecutiveFailures: timing?.consecutiveFailures ?? 0,

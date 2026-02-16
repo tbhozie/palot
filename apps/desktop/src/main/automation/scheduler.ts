@@ -39,7 +39,7 @@ async function computeNextRun(rruleStr: string, _timezone: string): Promise<Date
 	}
 }
 
-function scheduleNext(id: string, task: ScheduledTask) {
+async function scheduleNext(id: string, task: ScheduledTask): Promise<Date | null> {
 	if (task.timer) {
 		clearTimeout(task.timer)
 		task.timer = null
@@ -47,54 +47,55 @@ function scheduleNext(id: string, task: ScheduledTask) {
 
 	if (task.paused) {
 		task.nextRunAt = null
-		return
+		return null
 	}
 
-	computeNextRun(task.rruleStr, task.timezone).then((next) => {
-		if (!next) {
-			log.warn("No next occurrence for automation", { id })
-			task.nextRunAt = null
-			return
-		}
+	const next = await computeNextRun(task.rruleStr, task.timezone)
+	if (!next) {
+		log.warn("No next occurrence for automation", { id })
+		task.nextRunAt = null
+		return null
+	}
 
-		task.nextRunAt = next
-		const delay = Math.max(0, next.getTime() - Date.now())
-		log.debug("Scheduling automation", { id, nextRun: next.toISOString(), delayMs: delay })
+	task.nextRunAt = next
+	const delay = Math.max(0, next.getTime() - Date.now())
+	log.debug("Scheduling automation", { id, nextRun: next.toISOString(), delayMs: delay })
 
-		task.timer = setTimeout(async () => {
-			if (task.paused || task.running) return
+	task.timer = setTimeout(async () => {
+		if (task.paused || task.running) return
 
-			task.running = true
-			try {
-				await task.callback()
-			} catch (err) {
-				log.error("Automation run failed", { id }, err)
-			} finally {
-				task.running = false
-				// Schedule the next run
-				if (tasks.has(id) && !task.paused) {
-					scheduleNext(id, task)
-				}
+		task.running = true
+		try {
+			await task.callback()
+		} catch (err) {
+			log.error("Automation run failed", { id }, err)
+		} finally {
+			task.running = false
+			// Schedule the next run (fire-and-forget for timer callback)
+			if (tasks.has(id) && !task.paused) {
+				scheduleNext(id, task)
 			}
-		}, delay)
-
-		// Don't prevent app exit
-		if (task.timer && typeof task.timer === "object" && "unref" in task.timer) {
-			task.timer.unref()
 		}
-	})
+	}, delay)
+
+	// Don't prevent app exit
+	if (task.timer && typeof task.timer === "object" && "unref" in task.timer) {
+		task.timer.unref()
+	}
+
+	return next
 }
 
 // ============================================================
 // Public API
 // ============================================================
 
-export function addTask(
+export async function addTask(
 	id: string,
 	rruleStr: string,
 	timezone: string,
 	callback: () => Promise<void>,
-): void {
+): Promise<Date | null> {
 	removeTask(id)
 	const task: ScheduledTask = {
 		timer: null,
@@ -106,7 +107,7 @@ export function addTask(
 		nextRunAt: null,
 	}
 	tasks.set(id, task)
-	scheduleNext(id, task)
+	return scheduleNext(id, task)
 }
 
 export function removeTask(id: string): void {
