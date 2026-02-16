@@ -36,7 +36,6 @@ import {
 	useRef,
 	useState,
 } from "react"
-import { sessionMetricsFamily } from "../../atoms/derived/session-metrics"
 import { messagesFamily, removeMessageAtom } from "../../atoms/messages"
 import { projectModelsAtom, setProjectModelAtom } from "../../atoms/preferences"
 import type { SessionSetupPhase } from "../../atoms/sessions"
@@ -733,8 +732,6 @@ function ChatInputSection({
 		setMentions([])
 	}, [agent.sessionId])
 
-	const sessionMetrics = useAtomValue(sessionMetricsFamily(agent.sessionId))
-
 	// Stable callbacks for question/permission handlers
 	const handleReplyQuestion = useCallback(
 		async (requestId: string, answers: QuestionAnswer[]) => {
@@ -1325,7 +1322,6 @@ function ChatInputSection({
 						interruptCount={interruptCount}
 						sessionId={agent.sessionId}
 						providers={providers}
-						sessionCost={sessionMetrics.costRaw}
 						compaction={config?.compaction}
 						extraSlot={
 							agent.worktreePath ? (

@@ -45,7 +45,6 @@ import type {
 import { getModelVariants, parseModelRef } from "../../hooks/use-opencode-data"
 import {
 	computeContextUsage,
-	formatCost,
 	formatPercentage,
 	type ModelLimitInfo,
 	shortModelName,
@@ -554,8 +553,6 @@ interface StatusBarProps {
 	sessionId?: string
 	/** Provider data for context limit lookup */
 	providers?: ProvidersData | null
-	/** Total session cost (USD) for display in the context tooltip */
-	sessionCost?: number
 	/** Compaction config from OpenCode for accurate threshold calculation */
 	compaction?: CompactionConfig
 }
@@ -581,7 +578,6 @@ export function StatusBar({
 	extraSlot,
 	sessionId,
 	providers,
-	sessionCost,
 	compaction,
 }: StatusBarProps) {
 	const displayMode = useDisplayMode()
@@ -646,7 +642,6 @@ export function StatusBar({
 					<ContextUsageIndicator
 						sessionId={sessionId}
 						providers={providers}
-						sessionCost={sessionCost}
 						compaction={compaction}
 					/>
 				)}
@@ -670,7 +665,7 @@ export function StatusBar({
 // ============================================================
 
 /**
- * Compact context usage indicator: circular progress + percentage + cost.
+ * Compact context usage indicator: circular progress + percentage.
  * Reads messages from the Jotai atom and computes context window usage
  * against the model's context limit from provider data.
  *
@@ -680,12 +675,10 @@ export function StatusBar({
 function ContextUsageIndicator({
 	sessionId,
 	providers,
-	sessionCost,
 	compaction,
 }: {
 	sessionId: string
 	providers?: ProvidersData | null
-	sessionCost?: number
 	compaction?: CompactionConfig
 }) {
 	const messages = useAtomValue(messagesFamily(sessionId))
@@ -717,7 +710,6 @@ function ContextUsageIndicator({
 
 	const pct = usage.percentage
 	const color = pct >= 90 ? "text-red-400" : pct >= 70 ? "text-yellow-400" : ""
-	const costStr = sessionCost != null && sessionCost > 0 ? formatCost(sessionCost) : null
 
 	const compPct = usage.compactionPercentage
 	const compColor =
@@ -741,12 +733,6 @@ function ContextUsageIndicator({
 			>
 				<ContextCircle percentage={pct} size={12} strokeWidth={1.5} />
 				<span>{formatPercentage(pct)}</span>
-				{costStr && (
-					<>
-						<span className="text-muted-foreground/30">·</span>
-						<span>{costStr}</span>
-					</>
-				)}
 			</TooltipTrigger>
 			<TooltipContent side="top" align="end">
 				<div className="space-y-1.5 text-xs">
@@ -778,11 +764,6 @@ function ContextUsageIndicator({
 								</span>
 							</div>
 						</div>
-					)}
-					{costStr && (
-						<p className="border-t border-background/15 pt-1 text-background/60">
-							Session cost: {costStr}
-						</p>
 					)}
 				</div>
 			</TooltipContent>
