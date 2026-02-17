@@ -90,6 +90,7 @@ async function handleFetchProxy(
 	req: SerializedRequest,
 ): Promise<SerializedResponse> {
 	log.info("IPC fetch proxy →", { method: req.method, url: req.url })
+	const start = Date.now()
 	const response = await net.fetch(req.url, {
 		method: req.method,
 		headers: req.headers,
@@ -101,12 +102,14 @@ async function handleFetchProxy(
 	response.headers.forEach((value, key) => {
 		headers[key] = value
 	})
+	const durationMs = Date.now() - start
 
 	log.info("IPC fetch proxy ←", {
 		method: req.method,
 		url: req.url,
 		status: response.status,
 		bodyLength: body.length,
+		durationMs,
 	})
 
 	return {
@@ -127,10 +130,16 @@ function withLogging<TArgs extends unknown[], TResult>(
 	handler: (...args: TArgs) => TResult | Promise<TResult>,
 ): (...args: TArgs) => Promise<TResult> {
 	return async (...args: TArgs) => {
+		const start = Date.now()
 		try {
-			return await handler(...args)
+			const result = await handler(...args)
+			const durationMs = Date.now() - start
+			if (durationMs > 500) {
+				log.warn(`Handler "${channel}" slow`, { durationMs })
+			}
+			return result
 		} catch (err) {
-			log.error(`Handler "${channel}" failed`, err)
+			log.error(`Handler "${channel}" failed`, { durationMs: Date.now() - start }, err)
 			throw err
 		}
 	}

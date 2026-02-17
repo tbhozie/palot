@@ -16,8 +16,10 @@ import { isMockModeAtom } from "../atoms/mock-mode"
 import { partsFamily } from "../atoms/parts"
 import { sessionFamily, sessionIdsAtom } from "../atoms/sessions"
 import { appStore } from "../atoms/store"
+import { sessionDiffFamily } from "../atoms/ui"
 import { createLogger } from "../lib/logger"
 import {
+	MOCK_DIFFS,
 	MOCK_DISCOVERY,
 	MOCK_MESSAGES,
 	MOCK_PARTS,
@@ -80,7 +82,12 @@ function activateMockMode(): void {
 		}
 	}
 
-	// 4. Fake server connection state
+	// 4. Hydrate diffs
+	for (const [sessionId, diffs] of MOCK_DIFFS) {
+		appStore.set(sessionDiffFamily(sessionId), diffs)
+	}
+
+	// 5. Fake server connection state
 	appStore.set(serverUrlAtom, "http://mock-server:3100")
 	appStore.set(serverConnectedAtom, true)
 
@@ -111,7 +118,12 @@ function deactivateMockMode(): void {
 		}
 	}
 
-	// 3. Reset discovery so useDiscovery() will re-run
+	// 3. Clear diff atoms
+	for (const sessionId of MOCK_SESSION_IDS) {
+		appStore.set(sessionDiffFamily(sessionId), [])
+	}
+
+	// 4. Reset discovery so useDiscovery() will re-run
 	appStore.set(discoveryAtom, {
 		loaded: false,
 		loading: false,
@@ -120,11 +132,11 @@ function deactivateMockMode(): void {
 		projects: [],
 	})
 
-	// 4. Reset connection state
+	// 5. Reset connection state
 	appStore.set(serverUrlAtom, null)
 	appStore.set(serverConnectedAtom, false)
 
-	// 5. Reset discovery guard so the real discovery flow can re-run
+	// 6. Reset discovery guard so the real discovery flow can re-run
 	resetDiscoveryGuard()
 
 	log.info("Mock mode deactivated, real discovery will restart")

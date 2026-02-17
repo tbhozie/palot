@@ -168,6 +168,18 @@ export function AgentDetail({
 		return () => document.removeEventListener("keydown", handleKeyDown)
 	}, [setReviewPanelOpen, setReviewSettings, reviewPanelOpen])
 
+	// Close review panel when navigating to a session with no diffs
+	const prevSessionIdRef = useRef(agent.sessionId)
+	const diffStats = useAtomValue(sessionDiffStatsFamily(agent.sessionId))
+	useEffect(() => {
+		if (prevSessionIdRef.current !== agent.sessionId) {
+			prevSessionIdRef.current = agent.sessionId
+			if (diffStats.fileCount === 0) {
+				setReviewPanelOpen(false)
+			}
+		}
+	}, [agent.sessionId, diffStats.fileCount, setReviewPanelOpen])
+
 	const startEditingTitle = useCallback(() => {
 		if (!onRename) return
 		setTitleValue(agent.name)

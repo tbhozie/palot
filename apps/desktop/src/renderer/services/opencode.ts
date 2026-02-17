@@ -130,12 +130,15 @@ function createIpcFetch(authHeader?: string): typeof fetch {
 		}
 
 		log.info("IPC fetch →", { method: request.method, url: request.url })
+		const start = performance.now()
 		// Send through IPC → main process → net.fetch() → back
 		const result = await window.palot.fetch(serialized)
+		const durationMs = Math.round(performance.now() - start)
 		log.info("IPC fetch ←", {
 			method: request.method,
 			url: request.url,
 			status: result.status,
+			durationMs,
 		})
 
 		// HTTP spec: 101, 204, 205, 304 are "null body statuses" and the

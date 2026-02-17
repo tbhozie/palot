@@ -22,7 +22,7 @@
 
 ## What is Palot?
 
-Palot is an open-source Electron app that gives [OpenCode](https://opencode.ai) a full desktop interface. OpenCode is a powerful terminal-based AI coding agent, but it runs one project at a time and lives in the terminal. Palot wraps it with a visual UI so you can manage multiple projects and sessions from a single window, see rich tool call output, and interact with agents without leaving your editor.
+Palot is an open-source Electron app that gives [OpenCode](https://opencode.ai) a full desktop interface. OpenCode is a powerful terminal-based AI coding agent, but it runs one project at a time and lives in the terminal. Palot wraps it with a visual UI so you can manage multiple projects and sessions from a single window, review file changes in a dedicated diff panel, schedule automated agent runs, and migrate your existing setup from other coding agents.
 
 Palot spawns and manages the OpenCode server automatically, streams responses in real time, and renders tool calls with syntax-highlighted diffs, file previews, and terminal output.
 
@@ -30,9 +30,17 @@ Palot spawns and manages the OpenCode server automatically, streams responses in
 
 ## Features
 
+### Chat & Agent Interaction
+
 - **Multi-project workspace** -- Manage AI sessions across all your projects from a single window. OpenCode is scoped to one project per instance; Palot lifts that limitation.
 
 - **Full chat interface** -- Conversational UI with real-time SSE streaming, Markdown rendering, auto-scroll, lazy-load pagination, and draft persistence across session switches.
+
+- **Undo / redo** -- `Cmd+Z` to revert the agent's last turn (including file changes), `Shift+Cmd+Z` to redo.
+
+- **Slash commands** -- Type `/` to invoke server-side commands like `/compact` and `/help` directly from the chat input.
+
+- **File and context mentions** -- Use `@` to reference files or specific context, giving the agent precise scope.
 
 - **Rich tool call visualization** -- Every tool call is rendered inline:
   - File reads with line numbers and syntax highlighting
@@ -44,7 +52,7 @@ Palot spawns and manages the OpenCode server automatically, streams responses in
 
 - **Sub-agent cards** -- Live activity cards for delegated tasks, with collapsible child session views and automatic collapse on completion.
 
-- **Model and agent selector** -- Searchable model picker across all connected providers (Anthropic, OpenAI, Google, and more), with reasoning variant support and a "last used" section. Switch between available agents (code, build, etc.).
+- **Model and agent selector** -- Searchable model picker across all connected providers (Anthropic, OpenAI, Google, and more), with reasoning variant support, a "recently used" section, and favorites. Switch between available agents.
 
 - **Permission management** -- Inline approve/deny UI for agent permission requests, with "allow once" and "allow always" options.
 
@@ -52,7 +60,55 @@ Palot spawns and manages the OpenCode server automatically, streams responses in
 
 - **File attachments** -- Drag-and-drop images (PNG, JPEG, GIF, WebP) and PDFs into the chat, with model capability warnings.
 
-- **Command palette** -- `Cmd+K` to search sessions, switch projects, and create new chats.
+- **Session compaction** -- Summarize long conversations to reclaim context window tokens, manually or automatically.
+
+### Review & Git Workflow
+
+- **Review panel** -- A dedicated, collapsible side panel that shows all file changes from the current session. Powered by virtualized rendering and a worker pool for off-thread syntax highlighting, so it stays fast even with hundreds of changed files.
+
+- **Diff commenting** -- Click any line in the diff viewer to leave a comment. Comments are automatically collected and injected into the chat input so you can send feedback to the agent in one go.
+
+- **Commit and push** -- Integrated dialog to create branches, commit changes, push to remotes, and open a GitHub Pull Request, all without leaving Palot.
+
+- **Smart diff gates** -- Auto-collapses generated files (lockfiles, etc.) and very large diffs to keep the review panel responsive.
+
+### Automations
+
+- **Scheduled agent runs** -- Define recurring tasks with RRule-based scheduling. Palot runs the agent in the background and queues the results for your review.
+
+- **Human-in-the-loop review** -- Automation runs land in a `pending_review` state so you can inspect changes in the review panel before accepting or archiving them.
+
+- **Auto-archiving** -- Runs with no actionable changes are automatically archived to keep the list clean.
+
+- **Retry with backoff** -- Configurable execution retries with exponential backoff for flaky tasks.
+
+### Migration & Onboarding
+
+- **Migrate from Claude Code and Cursor** -- A guided wizard detects existing configurations and chat history from Claude Code and Cursor. It converts global/project settings, MCP servers, custom agents, commands, rules (e.g. `CLAUDE.md` to `AGENTS.md`), and hooks to the OpenCode format.
+
+- **History import** -- Convert past sessions and conversations from Cursor (`state.vscdb`) and Claude Code into OpenCode, so you don't lose context when switching.
+
+- **Backup and restore** -- Automatic backups before any migration, with a one-click restore option.
+
+- **CLI setup helper** -- Built-in UI to check, install, or repair the OpenCode CLI environment.
+
+### Desktop & OS Integration
+
+- **Liquid Glass (macOS 26+)** -- Native `NSGlassEffectView` window chrome on macOS Tahoe, with vibrancy fallback for older versions and an opaque mode for other platforms.
+
+- **System accent color** -- The UI adapts to the OS accent color on macOS and Windows.
+
+- **System tray** -- Runs in the background with a tray icon (including a dedicated Linux variant).
+
+- **Dock / app badges** -- Badge count on the app icon for pending tasks or required permissions.
+
+- **Secure credential storage** -- Encrypts server passwords and API keys using Electron's `safeStorage`.
+
+- **mDNS server discovery** -- Automatically scans the local network for OpenCode servers, letting you connect to remote or headless instances.
+
+- **Open in editor** -- Quick-launch buttons to open the current project in VS Code, Cursor, JetBrains IDEs, or the terminal.
+
+- **Command palette** -- `Cmd+K` to search sessions, switch projects, toggle feature flags, and run commands.
 
 - **Auto-updates** -- Built-in update mechanism with download progress and one-click restart.
 
@@ -93,6 +149,10 @@ This is expected behavior for unsigned apps and does not indicate malware.
 3. Palot will automatically manage the OpenCode server
 
 > OpenCode needs at least one AI provider configured (Anthropic, OpenAI, Google, etc.). Run `opencode` in a terminal once to complete initial setup.
+
+### Coming from Claude Code or Cursor?
+
+On first launch, Palot offers a guided migration wizard that detects your existing config and history. You can also trigger it later from Settings.
 
 ### Configuration
 
@@ -139,7 +199,7 @@ packages/
 
 The desktop app has three runtime contexts:
 
-- **Main process** (Node.js) -- Window management, IPC handlers, OpenCode server lifecycle
+- **Main process** (Node.js) -- Window management, IPC handlers, OpenCode server lifecycle, automation scheduler
 - **Preload** -- Secure bridge exposing `window.palot` API via `contextBridge`
 - **Renderer** (Chromium) -- React app with components, hooks, services, and Jotai atoms
 
@@ -154,9 +214,10 @@ The desktop app has three runtime contexts:
 | Styling | Tailwind CSS v4 |
 | State | Jotai |
 | Routing | TanStack Router |
-| UI components | shadcn/ui, Radix, cmdk |
+| UI components | shadcn/ui, Base UI, cmdk |
 | Code highlighting | Shiki |
 | Diff rendering | @pierre/diffs |
+| Virtualization | TanStack Virtual |
 | AI integration | @opencode-ai/sdk |
 | Monorepo | Turborepo + Bun workspaces |
 | Linting | Biome |
@@ -211,7 +272,7 @@ Please see the [AGENTS.md](AGENTS.md) file for code style conventions, naming pa
 
 Palot is built on top of [OpenCode](https://github.com/opencode-ai/opencode), an open-source AI coding agent. Palot communicates with the OpenCode server via the [`@opencode-ai/sdk`](https://www.npmjs.com/package/@opencode-ai/sdk) package.
 
-The UI component library is built with [shadcn/ui](https://ui.shadcn.com/), [Radix UI](https://www.radix-ui.com/), and [Tailwind CSS](https://tailwindcss.com/).
+The UI component library is built with [shadcn/ui](https://ui.shadcn.com/), [Base UI](https://base-ui.com/), and [Tailwind CSS](https://tailwindcss.com/).
 
 See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for a full list of third-party dependencies and their licenses.
 

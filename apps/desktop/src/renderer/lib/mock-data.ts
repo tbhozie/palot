@@ -8,6 +8,7 @@ import type { DiscoveryState } from "../atoms/discovery"
 import type { SessionEntry } from "../atoms/sessions"
 import type {
 	AssistantMessage,
+	FileDiff,
 	Message,
 	Part,
 	PermissionRequest,
@@ -978,6 +979,520 @@ const docsParts: Record<string, Part[]> = {
 		),
 	],
 }
+
+// ============================================================
+// File diffs per session
+// ============================================================
+
+const darkModeDiffs: FileDiff[] = [
+	{
+		file: "src/lib/theme.ts",
+		status: "added",
+		additions: 28,
+		deletions: 0,
+		before: "",
+		after: `type Theme = "light" | "dark" | "system"
+
+const STORAGE_KEY = "app-theme"
+const query = "(prefers-color-scheme: dark)"
+
+export function resolveTheme(stored: Theme | null): "light" | "dark" {
+  if (stored === "light" || stored === "dark") return stored
+  return window.matchMedia(query).matches ? "dark" : "light"
+}
+
+export function applyTheme(theme: "light" | "dark") {
+  document.documentElement.dataset.theme = theme
+}
+
+export function persistTheme(theme: Theme) {
+  localStorage.setItem(STORAGE_KEY, theme)
+}
+
+export function loadTheme(): Theme {
+  return (localStorage.getItem(STORAGE_KEY) as Theme) ?? "system"
+}
+
+export function watchSystemTheme(cb: (dark: boolean) => void) {
+  const mql = window.matchMedia(query)
+  const handler = (e: MediaQueryListEvent) => cb(e.matches)
+  mql.addEventListener("change", handler)
+  return () => mql.removeEventListener("change", handler)
+}`,
+	},
+	{
+		file: "src/components/settings.tsx",
+		status: "modified",
+		additions: 18,
+		deletions: 2,
+		before: `import { Card, CardContent, CardHeader } from "@/ui/card"
+import { Label } from "@/ui/label"
+
+export function Settings() {
+  return (
+    <Card>
+      <CardHeader title="Preferences" />
+      <CardContent>
+        <Label>Language</Label>
+        <LanguagePicker />
+        {/* TODO: add theme toggle */}
+      </CardContent>
+    </Card>
+  )
+}`,
+		after: `import { Card, CardContent, CardHeader } from "@/ui/card"
+import { Label } from "@/ui/label"
+import { ToggleGroup, ToggleGroupItem } from "@/ui/toggle-group"
+import { Sun, Moon, Monitor } from "lucide-react"
+import { useTheme } from "../hooks/use-theme"
+
+export function Settings() {
+  const { theme, setTheme } = useTheme()
+
+  return (
+    <Card>
+      <CardHeader title="Preferences" />
+      <CardContent>
+        <Label>Language</Label>
+        <LanguagePicker />
+        <Label>Theme</Label>
+        <ToggleGroup type="single" value={theme} onValueChange={setTheme}>
+          <ToggleGroupItem value="light"><Sun /></ToggleGroupItem>
+          <ToggleGroupItem value="dark"><Moon /></ToggleGroupItem>
+          <ToggleGroupItem value="system"><Monitor /></ToggleGroupItem>
+        </ToggleGroup>
+      </CardContent>
+    </Card>
+  )
+}`,
+	},
+	{
+		file: "src/styles/globals.css",
+		status: "modified",
+		additions: 12,
+		deletions: 0,
+		before: `:root {
+  --bg: #ffffff;
+  --fg: #111111;
+}`,
+		after: `:root {
+  --bg: #ffffff;
+  --fg: #111111;
+  --transition-theme: background-color 0.3s ease, color 0.3s ease;
+}
+
+[data-theme="dark"] {
+  --bg: #0a0a0a;
+  --fg: #f5f5f5;
+}
+
+* {
+  transition: var(--transition-theme);
+}`,
+	},
+]
+
+const authFixDiffs: FileDiff[] = [
+	{
+		file: "src/middleware/auth.ts",
+		status: "modified",
+		additions: 22,
+		deletions: 8,
+		before: `export async function refreshToken() {
+  const response = await fetch("/api/refresh", {
+    method: "POST",
+    credentials: "include",
+  })
+  if (!response.ok) throw new Error("Refresh failed")
+  const { token } = await response.json()
+  localStorage.setItem("token", token)
+  return token
+}`,
+		after: `let refreshPromise: Promise<string> | null = null
+
+async function doRefresh(): Promise<string> {
+  const response = await fetch("/api/refresh", {
+    method: "POST",
+    credentials: "include",
+  })
+  if (!response.ok) throw new Error("Refresh failed")
+  const { token } = await response.json()
+  localStorage.setItem("token", token)
+  return token
+}
+
+export async function refreshToken(): Promise<string> {
+  if (refreshPromise) return refreshPromise
+  refreshPromise = doRefresh().finally(() => {
+    refreshPromise = null
+  })
+  return refreshPromise
+}`,
+	},
+	{
+		file: "src/middleware/auth.test.ts",
+		status: "added",
+		additions: 42,
+		deletions: 0,
+		before: "",
+		after: `import { describe, expect, it, mock } from "bun:test"
+import { refreshToken } from "./auth"
+
+describe("refreshToken", () => {
+  it("refreshes token on expiry", async () => {
+    const mockFetch = mock(() =>
+      Promise.resolve(new Response(JSON.stringify({ token: "new-token" })))
+    )
+    globalThis.fetch = mockFetch
+    const token = await refreshToken()
+    expect(token).toBe("new-token")
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("deduplicates concurrent refresh calls", async () => {
+    let resolveRefresh: (v: Response) => void
+    const mockFetch = mock(
+      () => new Promise<Response>((r) => { resolveRefresh = r })
+    )
+    globalThis.fetch = mockFetch
+
+    const p1 = refreshToken()
+    const p2 = refreshToken()
+    const p3 = refreshToken()
+
+    resolveRefresh!(new Response(JSON.stringify({ token: "deduped" })))
+
+    const [t1, t2, t3] = await Promise.all([p1, p2, p3])
+    expect(t1).toBe("deduped")
+    expect(t2).toBe("deduped")
+    expect(t3).toBe("deduped")
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("retries on network failure", async () => {
+    // ...test implementation
+    expect(true).toBe(true)
+  })
+})`,
+	},
+]
+
+const refactorDiffs: FileDiff[] = [
+	{
+		file: "src/db/connection.ts",
+		status: "modified",
+		additions: 35,
+		deletions: 14,
+		before: `import pg from "pg"
+
+export function createConnection() {
+  return new pg.Client({
+    connectionString: process.env.DATABASE_URL,
+  })
+}
+
+export async function query(
+  sql: string,
+  params?: unknown[],
+) {
+  const client = createConnection()
+  await client.connect()
+  const result = await client.query(sql, params)
+  await client.end()
+  return result
+}`,
+		after: `import pg from "pg"
+
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: parseInt(process.env.DB_POOL_MAX ?? "20", 10),
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
+})
+
+pool.on("error", (err) => {
+  console.error("Unexpected pool error:", err)
+})
+
+export async function query(
+  sql: string,
+  params?: unknown[],
+) {
+  const client = await connectWithRetry(pool)
+  try {
+    return await client.query(sql, params)
+  } finally {
+    client.release()
+  }
+}
+
+async function connectWithRetry(
+  p: pg.Pool,
+  maxRetries = 5,
+): Promise<pg.PoolClient> {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await p.connect()
+    } catch (err) {
+      const delay = Math.min(1000 * 2 ** attempt, 30_000)
+      console.warn(\`DB connect attempt \${attempt + 1} failed, retrying in \${delay}ms\`)
+      await new Promise((r) => setTimeout(r, delay))
+    }
+  }
+  throw new Error("Failed to connect after retries")
+}
+
+export { pool }`,
+	},
+	{
+		file: "src/db/pool.ts",
+		status: "deleted",
+		additions: 0,
+		deletions: 6,
+		before: `import { createConnection } from "./connection"
+
+export async function getPool() {
+  const client = createConnection()
+  await client.connect()
+  return client
+}`,
+		after: "",
+	},
+]
+
+const landingDiffs: FileDiff[] = [
+	{
+		file: "src/components/hero.tsx",
+		status: "added",
+		additions: 38,
+		deletions: 0,
+		before: "",
+		after: `import { motion } from "framer-motion"
+
+export function Hero() {
+  return (
+    <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
+      <div className="animated-gradient absolute inset-0 opacity-60" />
+      <div className="relative z-10 text-center max-w-4xl mx-auto px-6">
+        <motion.h1
+          className="text-6xl font-bold tracking-tight text-white mb-6"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
+        >
+          Ship faster with AI
+        </motion.h1>
+        <motion.p
+          className="text-xl text-white/80 mb-10 max-w-2xl mx-auto"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.2 }}
+        >
+          Build, test, and deploy your applications with an AI-powered
+          development workflow.
+        </motion.p>
+        <motion.button
+          className="px-8 py-4 bg-white text-black rounded-full font-semibold
+                     hover:scale-105 transition-transform"
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5, delay: 0.4 }}
+        >
+          Get Started
+        </motion.button>
+      </div>
+    </section>
+  )
+}`,
+	},
+	{
+		file: "src/styles/hero.css",
+		status: "added",
+		additions: 16,
+		deletions: 0,
+		before: "",
+		after: `.animated-gradient {
+  background: linear-gradient(
+    135deg,
+    #667eea 0%,
+    #764ba2 25%,
+    #f093fb 50%,
+    #667eea 75%,
+    #764ba2 100%
+  );
+  background-size: 400% 400%;
+  animation: gradient-shift 8s ease infinite;
+}
+
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}`,
+	},
+]
+
+const testsDiffs: FileDiff[] = [
+	{
+		file: "src/middleware/auth.test.ts",
+		status: "added",
+		additions: 56,
+		deletions: 0,
+		before: "",
+		after: `import { describe, expect, it, mock, beforeEach } from "bun:test"
+import { validateToken, refreshToken, authMiddleware } from "./auth"
+
+describe("validateToken", () => {
+  it("returns true for valid non-expired token", () => {
+    const token = createMockJwt({ exp: Date.now() / 1000 + 3600 })
+    expect(validateToken(token)).toBe(true)
+  })
+
+  it("returns false for expired token", () => {
+    const token = createMockJwt({ exp: Date.now() / 1000 - 60 })
+    expect(validateToken(token)).toBe(false)
+  })
+
+  it("returns false for malformed token", () => {
+    expect(validateToken("not.a.jwt")).toBe(false)
+    expect(validateToken("")).toBe(false)
+  })
+})
+
+describe("authMiddleware", () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it("passes through when token is valid", async () => {
+    const token = createMockJwt({ exp: Date.now() / 1000 + 3600 })
+    localStorage.setItem("token", token)
+
+    const next = mock(() => Promise.resolve(new Response("ok")))
+    const req = new Request("http://localhost/api/data")
+    await authMiddleware(req, next)
+
+    expect(next).toHaveBeenCalledTimes(1)
+  })
+
+  it("refreshes expired token automatically", async () => {
+    const expired = createMockJwt({ exp: Date.now() / 1000 - 60 })
+    localStorage.setItem("token", expired)
+
+    const next = mock(() => Promise.resolve(new Response("ok")))
+    const req = new Request("http://localhost/api/data")
+    await authMiddleware(req, next)
+
+    expect(next).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem("token")).not.toBe(expired)
+  })
+
+  it("returns 401 when refresh fails", async () => {
+    const expired = createMockJwt({ exp: Date.now() / 1000 - 60 })
+    localStorage.setItem("token", expired)
+
+    globalThis.fetch = mock(() => Promise.resolve(new Response(null, { status: 401 })))
+    const next = mock(() => Promise.resolve(new Response("ok")))
+    const req = new Request("http://localhost/api/data")
+    const res = await authMiddleware(req, next)
+
+    expect(res.status).toBe(401)
+    expect(next).not.toHaveBeenCalled()
+  })
+})
+
+function createMockJwt(payload: Record<string, unknown>): string {
+  const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }))
+  const body = btoa(JSON.stringify(payload))
+  return \`\${header}.\${body}.mock-signature\`
+}`,
+	},
+]
+
+const docsDiffs: FileDiff[] = [
+	{
+		file: "docs/api/v2.md",
+		status: "modified",
+		additions: 85,
+		deletions: 1,
+		before: `# API v2
+
+> TODO: Document new endpoints`,
+		after: `# API v2
+
+## Authentication
+
+### POST /v2/auth/login
+
+Request:
+\`\`\`json
+{ "email": "user@example.com", "password": "..." }
+\`\`\`
+
+Response (200):
+\`\`\`json
+{ "token": "eyJ...", "refreshToken": "eyJ...", "expiresIn": 3600 }
+\`\`\`
+
+### POST /v2/auth/refresh
+
+Request:
+\`\`\`json
+{ "refreshToken": "eyJ..." }
+\`\`\`
+
+Response (200):
+\`\`\`json
+{ "token": "eyJ...", "expiresIn": 3600 }
+\`\`\`
+
+## Users
+
+### GET /v2/users
+
+Query: \`?page=1&limit=20\`
+
+Response (200):
+\`\`\`json
+{ "users": [...], "total": 42, "page": 1 }
+\`\`\`
+
+### PATCH /v2/users/:id
+
+Request:
+\`\`\`json
+{ "name": "Updated Name", "role": "admin" }
+\`\`\`
+
+## Error Codes
+
+| Code | Meaning |
+|------|---------|
+| 400  | Bad Request |
+| 401  | Unauthorized |
+| 403  | Forbidden |
+| 404  | Not Found |
+| 429  | Rate Limited |
+| 500  | Internal Server Error |
+
+## Rate Limiting
+
+All endpoints return rate limit headers:
+- \`X-RateLimit-Limit\`: Max requests per window
+- \`X-RateLimit-Remaining\`: Remaining requests
+- \`X-RateLimit-Reset\`: Unix timestamp when the window resets
+
+When rate limited (429), wait until the reset timestamp before retrying.`,
+	},
+]
+
+export const MOCK_DIFFS: Map<string, FileDiff[]> = new Map([
+	[IDS.sessionDarkMode, darkModeDiffs],
+	[IDS.sessionAuthFix, authFixDiffs],
+	[IDS.sessionRefactor, refactorDiffs],
+	[IDS.sessionLanding, landingDiffs],
+	[IDS.sessionTests, testsDiffs],
+	[IDS.sessionDocs, docsDiffs],
+])
 
 // ============================================================
 // Public API: collected mock data

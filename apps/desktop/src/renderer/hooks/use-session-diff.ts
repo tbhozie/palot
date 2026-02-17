@@ -1,5 +1,6 @@
 import { useAtomValue, useSetAtom } from "jotai"
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { isMockModeAtom } from "../atoms/mock-mode"
 import {
 	diffFilterFamily,
 	sessionDiffFamily,
@@ -21,10 +22,13 @@ export function useSessionDiff(sessionId: string, directory: string) {
 	const stats = useAtomValue(sessionDiffStatsFamily(sessionId))
 	const setDiffs = useSetAtom(setSessionDiffAtom)
 	const filter = useAtomValue(diffFilterFamily(sessionId))
+	const isMockMode = useAtomValue(isMockModeAtom)
 	const loadingRef = useRef(false)
 	const fetchedRef = useRef<string | null>(null)
+	const [initialFetchDone, setInitialFetchDone] = useState(false)
 
 	const fetchDiffs = useCallback(async () => {
+		if (isMockMode) return
 		if (loadingRef.current) return
 		loadingRef.current = true
 		try {
@@ -36,16 +40,19 @@ export function useSessionDiff(sessionId: string, directory: string) {
 			// Silently fail, diffs will update via SSE
 		} finally {
 			loadingRef.current = false
+			setInitialFetchDone(true)
 		}
-	}, [sessionId, directory, setDiffs])
+	}, [sessionId, directory, setDiffs, isMockMode])
 
 	// Initial fetch when session changes
 	useEffect(() => {
+		if (isMockMode) return
 		if (fetchedRef.current !== sessionId) {
 			fetchedRef.current = sessionId
+			setInitialFetchDone(false)
 			fetchDiffs()
 		}
-	}, [sessionId, fetchDiffs])
+	}, [sessionId, fetchDiffs, isMockMode])
 
 	// Filter diffs by message if a filter is active
 	const filteredDiffs: FileDiff[] = filter
@@ -56,7 +63,7 @@ export function useSessionDiff(sessionId: string, directory: string) {
 		diffs: filteredDiffs,
 		allDiffs: diffs,
 		stats,
-		loading: diffs.length === 0 && fetchedRef.current === sessionId,
+		loading: !initialFetchDone,
 		refetch: fetchDiffs,
 		filter,
 	}

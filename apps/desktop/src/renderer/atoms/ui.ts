@@ -15,8 +15,8 @@ export const viewedSessionIdAtom = atom<string | null>(null)
 // Review Panel State
 // ============================================================
 
-/** Whether the review panel is open */
-export const reviewPanelOpenAtom = atomWithStorage("palot:review-panel-open", false)
+/** Whether the review panel is open (resets to closed on app start) */
+export const reviewPanelOpenAtom = atom(false)
 
 /**
  * File path to highlight in the review panel.
