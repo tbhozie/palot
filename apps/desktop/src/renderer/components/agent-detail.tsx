@@ -403,16 +403,16 @@ function SessionAppBarContent({
 								if (e.key === "Escape") onCancelEditing()
 							}}
 							onBlur={onConfirmTitle}
-							className="col-start-1 row-start-1 h-7 min-w-0 border-none bg-transparent p-0 text-xs font-semibold leading-none shadow-none focus-visible:ring-0"
+							className="col-start-1 row-start-1 h-7 min-w-0 border-none bg-transparent p-0 text-xs md:text-xs font-semibold leading-none shadow-none focus-visible:ring-0"
 						/>
 					</div>
 				) : (
 					<button
 						type="button"
 						onClick={onRename ? onStartEditing : undefined}
-						className={`group flex min-w-0 flex-1 items-center gap-1.5 ${onRename ? "cursor-pointer" : "cursor-default"}`}
+						className={`group flex min-w-0 items-center gap-1.5 ${onRename ? "cursor-pointer" : "cursor-default"}`}
 					>
-						<h2 className="min-w-0 flex-1 truncate text-xs font-semibold leading-none">
+						<h2 className="min-w-0 truncate text-xs font-semibold leading-none">
 							{agent.name}
 						</h2>
 						{onRename && (
