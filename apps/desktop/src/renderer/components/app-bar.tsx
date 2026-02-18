@@ -6,8 +6,12 @@ export const APP_BAR_HEIGHT = 46
 /**
  * Detect whether we're running inside Electron (preload injects `window.palot`).
  */
-function isElectron(): boolean {
-	return typeof window !== "undefined" && "palot" in window
+function isMacElectron(): boolean {
+	return (
+		typeof window !== "undefined" &&
+		"palot" in window &&
+		window.palot.platform === "darwin"
+	)
 }
 
 export function AppBar() {
@@ -19,9 +23,9 @@ export function AppBar() {
 			className="relative z-30 flex shrink-0 items-center border-b border-border/50 pl-4 pr-3 transition-[padding-left] duration-250 ease-in-out group-data-[state=collapsed]/sidebar-wrapper:pl-[var(--window-controls-inset)]"
 			style={{
 				height: APP_BAR_HEIGHT,
-				// Make entire bar draggable on Electron (title bar replacement)
+				// Make bar draggable only on macOS where we draw custom traffic-light-aware chrome
 				// @ts-expect-error -- vendor-prefixed CSS property
-				WebkitAppRegion: isElectron() ? "drag" : undefined,
+				WebkitAppRegion: isMacElectron() ? "drag" : undefined,
 			}}
 		>
 			{/* ===== Page content (via portal) ===== */}

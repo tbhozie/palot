@@ -175,7 +175,7 @@ export function AppSidebarContent({
 	return (
 		<>
 			{/* Scrollable content */}
-			<SidebarContent>
+			<SidebarContent className="[-webkit-app-region:no-drag]">
 				{/* Empty state */}
 				{showEmptyState && (
 					<div className="flex flex-1 items-center justify-center p-4">
@@ -648,6 +648,33 @@ const SessionItem = memo(function SessionItem({
 		setEditValue(agent.name)
 	}, [agent.name])
 
+	const handleRenameMenuClick = useCallback(
+		(e: React.MouseEvent) => {
+			e.preventDefault()
+			e.stopPropagation()
+			startEditing()
+		},
+		[startEditing],
+	)
+
+	const handleForkMenuClick = useCallback(
+		(e: React.MouseEvent) => {
+			e.preventDefault()
+			e.stopPropagation()
+			void onFork?.(agent)
+		},
+		[onFork, agent],
+	)
+
+	const handleDeleteMenuClick = useCallback(
+		(e: React.MouseEvent) => {
+			e.preventDefault()
+			e.stopPropagation()
+			void onDelete?.(agent)
+		},
+		[onDelete, agent],
+	)
+
 	useEffect(() => {
 		if (isEditing && inputRef.current) {
 			inputRef.current.focus()
@@ -715,20 +742,20 @@ const SessionItem = memo(function SessionItem({
 			<ContextMenuTrigger render={btn} />
 			<ContextMenuContent>
 				{onRename && (
-					<ContextMenuItem onSelect={startEditing}>
+					<ContextMenuItem onClick={handleRenameMenuClick}>
 						<PencilIcon className="size-4" />
 						Rename
 					</ContextMenuItem>
 				)}
 				{onFork && (
-					<ContextMenuItem onSelect={() => onFork(agent)}>
+					<ContextMenuItem onClick={handleForkMenuClick}>
 						<GitForkIcon className="size-4" />
 						Fork
 					</ContextMenuItem>
 				)}
 				{(onRename || onFork) && onDelete && <ContextMenuSeparator />}
 				{onDelete && (
-					<ContextMenuItem variant="destructive" onSelect={() => onDelete(agent)}>
+					<ContextMenuItem variant="destructive" onClick={handleDeleteMenuClick}>
 						<TrashIcon className="size-4" />
 						Delete
 					</ContextMenuItem>

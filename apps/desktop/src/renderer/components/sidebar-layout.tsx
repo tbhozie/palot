@@ -188,9 +188,9 @@ export function SidebarLayout() {
 						className="flex-row items-center gap-1 shrink-0"
 						style={{
 							height: APP_BAR_HEIGHT,
-							// Make header draggable on Electron (acts as title bar above sidebar)
+							// Make header draggable only on macOS
 							// @ts-expect-error -- vendor-prefixed CSS property
-							WebkitAppRegion: "drag",
+							WebkitAppRegion: isMac ? "drag" : undefined,
 						}}
 					/>
 					{slotContent ?? (
