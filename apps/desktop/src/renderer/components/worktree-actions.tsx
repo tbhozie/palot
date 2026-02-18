@@ -56,11 +56,9 @@ type CommitStep = "commit" | "commit-push" | "commit-push-pr"
 // ============================================================
 
 export function WorktreeActions({ agent }: WorktreeActionsProps) {
-	if (!agent.worktreePath) return null
-
 	return (
 		<div className="flex items-center gap-1">
-			<ApplyToLocalButton agent={agent} />
+			{agent.worktreePath && <ApplyToLocalButton agent={agent} />}
 			<CommitPushButton agent={agent} />
 		</div>
 	)
@@ -152,8 +150,7 @@ function ApplyToLocalButton({ agent }: { agent: Agent }) {
 
 function CommitPushButton({ agent }: { agent: Agent }) {
 	const [open, setOpen] = useState(false)
-
-	if (!agent.worktreePath) return null
+	const repoPath = agent.worktreePath ?? agent.directory
 
 	return (
 		<>
@@ -174,7 +171,7 @@ function CommitPushButton({ agent }: { agent: Agent }) {
 				<TooltipContent side="bottom">Commit all changes and push to remote</TooltipContent>
 			</Tooltip>
 
-			<CommitDialog open={open} onOpenChange={setOpen} agent={agent} />
+			<CommitDialog open={open} onOpenChange={setOpen} agent={agent} repoPath={repoPath} />
 		</>
 	)
 }
@@ -187,10 +184,12 @@ function CommitDialog({
 	open,
 	onOpenChange,
 	agent,
+	repoPath,
 }: {
 	open: boolean
 	onOpenChange: (open: boolean) => void
 	agent: Agent
+	repoPath: string
 }) {
 	const [diffStat, setDiffStat] = useState<GitDiffStat | null>(null)
 	const [loadingDiff, setLoadingDiff] = useState(false)
@@ -200,32 +199,38 @@ function CommitDialog({
 	const [error, setError] = useState<string | null>(null)
 	const [success, setSuccess] = useState<string | null>(null)
 
-	// Ensure we have a branch name. If worktreeBranch is set, use it.
-	// Otherwise the user needs to create one.
-	const [branchName, setBranchName] = useState(agent.worktreeBranch ?? "")
-	const hasBranch = !!agent.worktreeBranch
+	// Branch: worktree has worktreeBranch (may be empty); local has agent.branch.
+	const [branchName, setBranchName] = useState(agent.worktreeBranch ?? agent.branch ?? "")
+	const hasBranch = !!(agent.worktreeBranch ?? agent.branch)
+
+	// Sync branch name when dialog opens or agent changes
+	useEffect(() => {
+		if (open) {
+			setBranchName(agent.worktreeBranch ?? agent.branch ?? "")
+		}
+	}, [open, agent.worktreeBranch, agent.branch])
 
 	// Load diff stat when dialog opens
 	useEffect(() => {
-		if (!open || !agent.worktreePath) return
+		if (!open || !repoPath) return
 		setLoadingDiff(true)
 		setError(null)
 		setSuccess(null)
-		fetchDiffStat(agent.worktreePath)
+		fetchDiffStat(repoPath)
 			.then(setDiffStat)
 			.catch(() => setDiffStat(null))
 			.finally(() => setLoadingDiff(false))
-	}, [open, agent.worktreePath])
+	}, [open, repoPath])
 
 	const handleExecute = useCallback(async () => {
-		if (!agent.worktreePath) return
+		if (!repoPath) return
 		setExecuting(true)
 		setError(null)
 
 		try {
-			// Step 1: Create branch if we don't have one yet
+			// Step 1: Create branch if we don't have one yet (worktree with new branch)
 			if (!hasBranch && branchName) {
-				const branchResult = await gitCreateBranch(agent.worktreePath, branchName)
+				const branchResult = await gitCreateBranch(repoPath, branchName)
 				if (!branchResult.success) {
 					setError(`Branch creation failed: ${branchResult.error}`)
 					return
@@ -236,7 +241,7 @@ function CommitDialog({
 			const msg =
 				commitMessage.trim() ||
 				`Update ${diffStat?.filesChanged || 0} file${diffStat?.filesChanged !== 1 ? "s" : ""}`
-			const commitResult = await gitCommitAll(agent.worktreePath, msg)
+			const commitResult = await gitCommitAll(repoPath, msg)
 			if (!commitResult.success) {
 				setError(`Commit failed: ${commitResult.error}`)
 				return
@@ -244,7 +249,7 @@ function CommitDialog({
 
 			// Step 3: Push if requested
 			if (step === "commit-push" || step === "commit-push-pr") {
-				const pushResult = await gitPush(agent.worktreePath)
+				const pushResult = await gitPush(repoPath)
 				if (!pushResult.success) {
 					setError(`Push failed: ${pushResult.error}`)
 					return
@@ -252,12 +257,12 @@ function CommitDialog({
 			}
 
 			// Step 4: Open PR URL if requested
-			if (step === "commit-push-pr" && agent.worktreePath) {
+			if (step === "commit-push-pr" && repoPath) {
 				// Construct a GitHub new-PR URL. Best-effort for GitHub repos.
 				try {
-					const effectiveBranch = branchName || agent.worktreeBranch || ""
+					const effectiveBranch = branchName || agent.worktreeBranch || agent.branch || ""
 					if (effectiveBranch) {
-						const remoteUrl = await getGitRemoteUrl(agent.worktreePath)
+						const remoteUrl = await getGitRemoteUrl(repoPath)
 						if (remoteUrl) {
 							const match = remoteUrl.match(/(?:github\.com)[/:](.+?)(?:\.git)?$/)
 							if (match) {
@@ -286,8 +291,9 @@ function CommitDialog({
 			setExecuting(false)
 		}
 	}, [
-		agent.worktreePath,
+		repoPath,
 		agent.worktreeBranch,
+		agent.branch,
 		branchName,
 		commitMessage,
 		step,
@@ -311,7 +317,7 @@ function CommitDialog({
 						Commit your changes
 					</DialogTitle>
 					<DialogDescription>
-						Commit changes from the worktree and optionally push or create a PR.
+						Commit your changes and optionally push or create a PR.
 					</DialogDescription>
 				</DialogHeader>
 
@@ -322,7 +328,7 @@ function CommitDialog({
 						{hasBranch ? (
 							<div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-sm">
 								<GitBranchIcon className="size-3.5 text-muted-foreground" />
-								<span className="truncate">{agent.worktreeBranch}</span>
+								<span className="truncate">{branchName}</span>
 							</div>
 						) : (
 							<Input
