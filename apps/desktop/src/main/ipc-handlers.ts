@@ -16,6 +16,11 @@ import type { CreateAutomationInput, UpdateAutomationInput } from "./automation/
 import { installCli, isCliInstalled, uninstallCli } from "./cli-install"
 import { deleteCredential, getCredential, storeCredential } from "./credential-store"
 import {
+	isRunning as isDevServerRunning,
+	start as startDevServer,
+	stop as stopDevServer,
+} from "./dev-server"
+import {
 	applyChangesToLocal,
 	applyDiffTextToLocal,
 	checkout,
@@ -340,6 +345,22 @@ export function registerIpcHandlers(): void {
 		setPreferredTarget(targetId)
 		return { success: true }
 	})
+
+	// --- Dev server (project dev script) ---
+
+	ipcMain.handle(
+		"dev-server:start",
+		withLogging("dev-server:start", async (_, directory: string) => startDevServer(directory)),
+	)
+
+	ipcMain.handle(
+		"dev-server:stop",
+		withLogging("dev-server:stop", async (_, directory: string) => stopDevServer(directory)),
+	)
+
+	ipcMain.handle("dev-server:is-running", async (_, directory: string) =>
+		isDevServerRunning(directory),
+	)
 
 	// --- Chrome tier (pull-based, avoids race with push-based "chrome-tier" event) ---
 

@@ -21,6 +21,7 @@ import {
 	FileDiffIcon,
 	GitForkIcon,
 	PencilIcon,
+	PlayIcon,
 	SquareIcon,
 	TerminalIcon,
 	XIcon,
@@ -38,7 +39,15 @@ import type {
 import { useServerConnection } from "../hooks/use-server"
 import type { ChatTurn } from "../hooks/use-session-chat"
 import type { Agent, AgentStatus, FileAttachment, QuestionAnswer } from "../lib/types"
-import { fetchOpenInTargets, isElectron, openInTarget } from "../services/backend"
+import {
+	fetchOpenInTargets,
+	isDevServerRunning,
+	isElectron,
+	onDevServerStopped,
+	openInTarget,
+	startDevServer,
+	stopDevServer,
+} from "../services/backend"
 import { useSetAppBarContent } from "./app-bar-context"
 import { ChatView } from "./chat"
 import { PalotWordmark } from "./palot-wordmark"
@@ -477,6 +486,11 @@ function SessionAppBarContent({
 					<SessionMetricsBar sessionId={agent.sessionId} />
 				</div>
 
+				{/* Dev server (start/stop) */}
+				<div className="hidden md:block">
+					<DevServerButton directory={agent.worktreePath ?? agent.directory} />
+				</div>
+
 				{/* Open in external editor */}
 				<div className="hidden md:block">
 					<OpenInButton directory={agent.worktreePath ?? agent.directory} />
@@ -519,6 +533,76 @@ function SessionAppBarContent({
 				</button>
 			</div>
 		</div>
+	)
+}
+
+// ============================================================
+// Dev server (start/stop)
+// ============================================================
+
+function DevServerButton({ directory }: { directory: string }) {
+	const [running, setRunning] = useState(false)
+	const [loading, setLoading] = useState(false)
+
+	// Initial load and subscription to stopped events
+	useEffect(() => {
+		let cancelled = false
+		isDevServerRunning(directory).then((isRunning) => {
+			if (!cancelled) setRunning(isRunning)
+		})
+		const normDir = directory.replace(/\/+$/, "") || directory
+		const unsubscribe = onDevServerStopped((data) => {
+			const normStopped = data.directory.replace(/\/+$/, "") || data.directory
+			if (normStopped === normDir && !cancelled) setRunning(false)
+		})
+		return () => {
+			cancelled = true
+			unsubscribe()
+		}
+	}, [directory])
+
+	const handleClick = useCallback(async () => {
+		if (loading) return
+		setLoading(true)
+		try {
+			if (running) {
+				const result = await stopDevServer(directory)
+				if (result.ok) setRunning(false)
+				// On error, keep running state
+			} else {
+				const result = await startDevServer(directory)
+				if (result.ok) setRunning(true)
+				else if (result.error) {
+					// Could show toast; for now just don't flip state
+				}
+			}
+		} finally {
+			setLoading(false)
+		}
+	}, [directory, running, loading])
+
+	if (!isElectron) return null
+
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<button
+						type="button"
+						onClick={handleClick}
+						disabled={loading}
+						className="flex items-center rounded-md border border-border/60 px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+					/>
+				}
+			>
+				{running ? (
+					<SquareIcon className="size-3.5" aria-hidden="true" />
+				) : (
+					<PlayIcon className="size-3.5" aria-hidden="true" />
+				)}
+			</TooltipTrigger>
+			<TooltipContent>{running ? "Stop Dev Server" : "Start Dev Server"}</TooltipContent>
+		</Tooltip>
 	)
 }
 

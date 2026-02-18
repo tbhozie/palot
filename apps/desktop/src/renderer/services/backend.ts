@@ -371,6 +371,38 @@ export async function setOpenInPreferred(targetId: string): Promise<{ success: b
 }
 
 // ============================================================
+// Dev server — Electron-only
+// ============================================================
+
+export interface DevServerResult {
+	ok: boolean
+	error?: string
+}
+
+export async function startDevServer(directory: string): Promise<DevServerResult> {
+	if (!isElectron) return { ok: false, error: "Dev server is only available in Electron mode" }
+	const result = await window.palot?.devServer?.start?.(directory)
+	return result ?? { ok: false, error: "Dev server is not available" }
+}
+
+export async function stopDevServer(directory: string): Promise<DevServerResult> {
+	if (!isElectron) return { ok: false, error: "Dev server is only available in Electron mode" }
+	const result = await window.palot?.devServer?.stop?.(directory)
+	return result ?? { ok: false, error: "Dev server is not available" }
+}
+
+export async function isDevServerRunning(directory: string): Promise<boolean> {
+	if (!isElectron) return false
+	const result = await window.palot?.devServer?.isRunning?.(directory)
+	return result ?? false
+}
+
+export function onDevServerStopped(callback: (data: { directory: string }) => void): () => void {
+	if (!isElectron) return () => {}
+	return window.palot?.devServer?.onStopped?.(callback) ?? (() => {})
+}
+
+// ============================================================
 // Automations — Electron-only
 // ============================================================
 

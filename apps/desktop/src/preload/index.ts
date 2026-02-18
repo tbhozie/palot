@@ -157,6 +157,21 @@ contextBridge.exposeInMainWorld("palot", {
 		setPreferred: (targetId: string) => ipcRenderer.invoke("open-in:set-preferred", targetId),
 	},
 
+	// --- Dev server (project dev script) ---
+
+	devServer: {
+		start: (directory: string) => ipcRenderer.invoke("dev-server:start", directory),
+		stop: (directory: string) => ipcRenderer.invoke("dev-server:stop", directory),
+		isRunning: (directory: string) => ipcRenderer.invoke("dev-server:is-running", directory),
+		onStopped: (callback: (data: { directory: string }) => void) => {
+			const listener = (_event: unknown, data: { directory: string }) => callback(data)
+			ipcRenderer.on("dev-server:stopped", listener)
+			return () => {
+				ipcRenderer.removeListener("dev-server:stopped", listener)
+			}
+		},
+	},
+
 	// --- Native theme (syncs macOS glass tint to app color scheme) ---
 
 	/** Set the native theme source to control macOS glass tint color. */

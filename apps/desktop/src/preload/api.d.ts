@@ -482,6 +482,14 @@ export interface PalotAPI {
 		setPreferred: (targetId: string) => Promise<{ success: boolean }>
 	}
 
+	// Dev server (project dev script)
+	devServer: {
+		start: (directory: string) => Promise<{ ok: boolean; error?: string }>
+		stop: (directory: string) => Promise<{ ok: boolean; error?: string }>
+		isRunning: (directory: string) => Promise<boolean>
+		onStopped: (callback: (data: { directory: string }) => void) => () => void
+	}
+
 	// Native theme (syncs macOS glass tint to app color scheme)
 	/** Set the native theme source ("light" | "dark" | "system") to control macOS glass tint. */
 	setNativeTheme: (source: string) => Promise<void>
