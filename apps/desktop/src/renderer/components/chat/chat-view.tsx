@@ -462,6 +462,27 @@ export function ChatView({
 	const sessionEntry = useAtomValue(sessionFamily(agent.sessionId))
 	const sessionError = sessionEntry?.error
 	const setupPhase = sessionEntry?.setupPhase
+	// Format the session-level error for display. Only shown when the last
+	// turn doesn't already carry an assistant-level error (the server emits
+	// both session.error and message.updated for the same failure, so showing
+	// both would duplicate the message).
+	const sessionErrorText = useMemo(() => {
+		if (!sessionError) return undefined
+		if ("message" in sessionError.data && sessionError.data.message) {
+			return String(sessionError.data.message)
+		}
+		return `${sessionError.name}: ${JSON.stringify(sessionError.data)}`
+	}, [sessionError])
+
+	const lastTurnHasError = useMemo(() => {
+		const lastTurn = turns.at(-1)
+		if (!lastTurn) return false
+		return lastTurn.assistantMessages.some(
+			(m) => m.info.role === "assistant" && m.info.error != null,
+		)
+	}, [turns])
+
+	const showSessionError = !!sessionErrorText && !lastTurnHasError
 
 	// Stable callbacks for question/permission handlers — agent is stable
 	// per render, but wrapping in useCallback avoids creating new inline
@@ -623,11 +644,9 @@ export function ChatView({
 							)}
 
 							{/* Session-level error from session.error events */}
-							{sessionError && (
+							{showSessionError && sessionErrorText && (
 								<div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
-									{"message" in sessionError.data && sessionError.data.message
-										? String(sessionError.data.message)
-										: `${sessionError.name}: ${JSON.stringify(sessionError.data)}`}
+									{sessionErrorText}
 								</div>
 							)}
 						</div>
