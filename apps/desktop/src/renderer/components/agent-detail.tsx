@@ -430,10 +430,10 @@ function SessionAppBarContent({
 					WebkitAppRegion: "no-drag",
 				}}
 			>
-				{/* Worktree actions (Apply to local, Commit & push) */}
-				{agent.worktreePath && <WorktreeActions agent={agent} />}
+				{/* Worktree/Local actions (Apply to local for worktrees, Commit & push for both) */}
+				<WorktreeActions agent={agent} />
 
-				{agent.worktreePath && <div className="hidden h-3 w-px shrink-0 bg-border/60 md:block" />}
+				<div className="hidden h-3 w-px shrink-0 bg-border/60 md:block" />
 
 				{/* Review panel toggle with change stats badge */}
 				<Tooltip>
