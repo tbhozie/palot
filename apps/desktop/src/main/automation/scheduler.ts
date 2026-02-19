@@ -43,7 +43,9 @@ async function computeNextRun(
 	rruleStr: string,
 	_timezone: string,
 ): Promise<Date | null> {
-	const { RRule } = await import("rrule")
+	const rruleModule = await import("rrule")
+	// Handle CJS/ESM interop: named export in CJS, nested under default in ESM
+	const RRule = rruleModule.RRule ?? rruleModule.default?.RRule
 	try {
 		const rule = RRule.fromString(rruleStr)
 		const now = new Date()
@@ -245,7 +247,9 @@ export async function previewSchedule(
 	_timezone: string,
 	count: number = 5,
 ): Promise<Date[]> {
-	const { RRule } = await import("rrule")
+	const rruleModule = await import("rrule")
+	// Handle CJS/ESM interop: named export in CJS, nested under default in ESM
+	const RRule = rruleModule.RRule ?? rruleModule.default?.RRule
 	try {
 		const rule = RRule.fromString(rruleStr)
 		const dates: Date[] = []

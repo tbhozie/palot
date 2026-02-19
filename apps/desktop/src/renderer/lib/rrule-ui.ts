@@ -219,7 +219,9 @@ export function formatScheduleSummary(config: ScheduleConfig): string {
  */
 export async function computeNextRuns(rruleStr: string, count = 3): Promise<Date[]> {
 	try {
-		const { RRule } = await import("rrule")
+		const rruleModule = await import("rrule")
+		// Handle CJS/ESM interop: named export in CJS, nested under default in ESM
+		const RRule = rruleModule.RRule ?? rruleModule.default?.RRule
 		const rule = RRule.fromString(rruleStr)
 		const dates: Date[] = []
 		let current = new Date()

@@ -52,15 +52,26 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 /**
  * Maps a PermissionPreset to a PermissionRuleset array.
  *
- * - "default": No overrides, inherit project config. Deny questions/plans
- *   so the agent doesn't block waiting for interactive input.
- * - "allow-all": Allow all permissions (fully autonomous).
- * - "read-only": Deny edit/write/bash, allow read-only tools.
+ * All presets start from a base of "allow everything" and then layer
+ * specific denies on top. Automations run unattended -- if any permission
+ * lands in "ask" state the monitor would immediately reject it and fail
+ * the run. Interactive prompts (question, plan_enter, plan_exit) are always
+ * denied since there's no human to respond.
+ *
+ * - "default": Allow all tools (except interactive prompts).
+ * - "allow-all": Identical to default, explicit for clarity.
+ * - "read-only": Deny edit/write/bash on top of the allow-all base.
+ *
+ * NOTE: Ruleset evaluation uses findLast -- later rules override earlier
+ * ones. Denies must come after the wildcard allow in the array.
  */
 function buildPermissionRuleset(preset: PermissionPreset): PermissionRuleset {
-	// Base rules: always deny interactive prompts (questions, plan mode)
-	// since there's no human watching the automation
+	// Base rules: allow all permissions by default, then deny interactive
+	// prompts last so they take precedence (ruleset uses findLast evaluation).
+	// Automations run unattended -- blocking on any permission would cause
+	// the monitor to auto-reject and fail the run.
 	const baseRules: PermissionRuleset = [
+		{ permission: "*", pattern: "*", action: "allow" },
 		{ permission: "question", pattern: "*", action: "deny" },
 		{ permission: "plan_enter", pattern: "*", action: "deny" },
 		{ permission: "plan_exit", pattern: "*", action: "deny" },
