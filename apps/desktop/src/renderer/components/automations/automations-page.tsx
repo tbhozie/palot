@@ -95,10 +95,8 @@ export function AutomationsPage() {
 					<Alert className="border-amber-500/30 bg-amber-500/5 text-amber-200/90 [&>svg]:text-amber-400">
 						<AlertDescription className="text-[12px] text-amber-200/70">
 							<span className="font-medium text-amber-200/90">Automations run unattended</span>
-							{" "}with broad permissions by default: all tools (file reads, edits, bash) are
-							allowed and interactive prompts are auto-denied. Use the{" "}
-							<span className="font-medium text-amber-200/90">read-only</span> permission preset
-							to restrict file edits and commands.
+							{" "}with broad permissions: all tools are allowed (file reads, edits, bash
+							commands) and interactive prompts are auto-denied since no one is watching.
 						</AlertDescription>
 						<AlertAction>
 							<button
