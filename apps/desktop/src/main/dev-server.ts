@@ -6,7 +6,7 @@
  * Tracks running servers by project directory for start/stop.
  */
 
-import { type ChildProcess, spawn } from "node:child_process"
+import { type ChildProcess, execSync, spawn } from "node:child_process"
 import { platform } from "node:os"
 import path from "node:path"
 import { BrowserWindow, shell } from "electron"
@@ -63,10 +63,22 @@ export function stop(directory: string): { ok: boolean; error?: string } {
 		return { ok: true }
 	}
 	try {
-		entry.process.kill("SIGTERM")
+		const pid = entry.process.pid
+		if (!pid) {
+			runningByDirectory.delete(norm)
+			broadcastStopped(norm)
+			return { ok: true }
+		}
+
+		if (platform() === "win32") {
+			execSync(`taskkill /T /F /PID ${pid}`, { stdio: "ignore" })
+		} else {
+			entry.process.kill("SIGTERM")
+		}
+
 		runningByDirectory.delete(norm)
 		broadcastStopped(norm)
-		log.info("Dev server stopped", { directory: norm })
+		log.info("Dev server stopped", { directory: norm, pid })
 		return { ok: true }
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : "Unknown error"

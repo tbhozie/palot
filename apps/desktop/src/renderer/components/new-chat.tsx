@@ -17,6 +17,8 @@ import {
 	GitForkIcon,
 	GitPullRequestIcon,
 	MonitorIcon,
+	PlayIcon,
+	SquareIcon,
 } from "lucide-react"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { projectModelsAtom, setProjectModelAtom } from "../atoms/preferences"
@@ -44,6 +46,13 @@ import {
 import { useAgentActions } from "../hooks/use-server"
 import type { FileAttachment } from "../lib/types"
 import { createWorktree, randomWorktreeName } from "../services/worktree-service"
+import {
+	isDevServerRunning,
+	isElectron,
+	onDevServerStopped,
+	startDevServer,
+	stopDevServer,
+} from "../services/backend"
 import { useSetAppBarContent } from "./app-bar-context"
 import { BranchPicker } from "./branch-picker"
 import { PromptAttachmentPreview } from "./chat/prompt-attachments"
@@ -104,6 +113,67 @@ function WorktreeToggle({
 				</TooltipContent>
 			</Tooltip>
 		</div>
+	)
+}
+
+function DevServerButton({ directory }: { directory: string }) {
+	const [running, setRunning] = useState(false)
+	const [loading, setLoading] = useState(false)
+
+	useEffect(() => {
+		let cancelled = false
+		isDevServerRunning(directory).then((isRunning) => {
+			if (!cancelled) setRunning(isRunning)
+		})
+		const normDir = directory.replace(/\/+$/, "") || directory
+		const unsubscribe = onDevServerStopped((data) => {
+			const normStopped = data.directory.replace(/\/+$/, "") || data.directory
+			if (normStopped === normDir && !cancelled) setRunning(false)
+		})
+		return () => {
+			cancelled = true
+			unsubscribe()
+		}
+	}, [directory])
+
+	const handleClick = useCallback(async () => {
+		if (loading) return
+		setLoading(true)
+		try {
+			if (running) {
+				const result = await stopDevServer(directory)
+				if (result.ok) setRunning(false)
+			} else {
+				const result = await startDevServer(directory)
+				if (result.ok) setRunning(true)
+			}
+		} finally {
+			setLoading(false)
+		}
+	}, [directory, running, loading])
+
+	if (!isElectron) return null
+
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<button
+						type="button"
+						onClick={handleClick}
+						disabled={loading}
+						className="flex items-center rounded-md border border-border/60 px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+					/>
+				}
+			>
+				{running ? (
+					<SquareIcon className="size-3.5" aria-hidden="true" />
+				) : (
+					<PlayIcon className="size-3.5" aria-hidden="true" />
+				)}
+			</TooltipTrigger>
+			<TooltipContent>{running ? "Stop Dev Server" : "Start Dev Server"}</TooltipContent>
+		</Tooltip>
 	)
 }
 
@@ -639,11 +709,14 @@ export function NewChat() {
 									/>
 								) : undefined
 							}
-							extraSlot={
-								vcs ? (
+						extraSlot={
+							vcs ? (
+								<div className="flex items-center gap-2">
+									<DevServerButton directory={selectedDirectory} />
 									<WorktreeToggle mode={worktreeMode} onModeChange={setWorktreeMode} />
-								) : undefined
-							}
+								</div>
+							) : undefined
+						}
 						/>
 					)}
 
