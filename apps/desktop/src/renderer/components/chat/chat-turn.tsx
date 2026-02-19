@@ -755,7 +755,16 @@ export const ChatTurnComponent = memo(
 											</Reasoning>
 										)
 									}
-								// tool-group
+								// tool-group: single tool renders directly, multiple get a collapsible summary
+								if (item.tools.length === 1) {
+									return (
+										<ChatToolCall
+											key={item.tools[0].id}
+											part={item.tools[0]}
+											isActiveTurn={isActiveTurn}
+										/>
+									)
+								}
 								return (
 									<ToolGroupSummary
 										key={`group-${idx}-${item.tools[0].id}`}
@@ -763,7 +772,7 @@ export const ChatTurnComponent = memo(
 										tools={item.tools}
 										isActiveTurn={isActiveTurn}
 									/>
-									)
+								)
 								})}
 								{/* Live status while the agent is still working */}
 								{working && hasSteps && (
