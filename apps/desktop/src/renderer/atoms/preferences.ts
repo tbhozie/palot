@@ -95,6 +95,15 @@ export const projectModelsAtom = atomWithStorage<Record<string, PersistedModelRe
 	{},
 )
 
+/**
+ * Whether the user has dismissed the automations permissions info banner.
+ * Once dismissed, the banner never reappears.
+ */
+export const automationsBannerDismissedAtom = atomWithStorage<boolean>(
+	"palot:automationsBannerDismissed",
+	false,
+)
+
 // ============================================================
 // Derived atoms for drafts
 // ============================================================

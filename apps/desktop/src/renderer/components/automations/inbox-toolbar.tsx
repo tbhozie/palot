@@ -5,7 +5,6 @@
  * and "+ New" button.
  */
 
-import { Badge } from "@palot/ui/components/badge"
 import { Button } from "@palot/ui/components/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@palot/ui/components/tooltip"
 import { FilterIcon, PlusIcon } from "lucide-react"
@@ -18,9 +17,6 @@ export function InboxToolbar({ onNewClick }: InboxToolbarProps) {
 	return (
 		<div className="flex items-center gap-2 border-b border-border/50 px-4 py-3">
 			<h1 className="text-sm font-semibold">Automations</h1>
-			<Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-				Beta
-			</Badge>
 
 			<div className="ml-auto flex items-center gap-1">
 				<Tooltip>
