@@ -12,24 +12,19 @@ import {
 } from "@palot/ui/components/ai-elements/reasoning"
 import { Shimmer } from "@palot/ui/components/ai-elements/shimmer"
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@palot/ui/components/dialog"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@palot/ui/components/tooltip"
+
 import {
 	ArrowUpToLineIcon,
 	BotIcon,
 	CheckIcon,
 	ChevronDownIcon,
 	CopyIcon,
-	EditIcon,
-	EyeIcon,
 	FileIcon,
 	GitForkIcon,
-	GlobeIcon,
 	ListOrderedIcon,
+	Loader2Icon,
 	SendIcon,
-	TerminalIcon,
 	Undo2Icon,
-	WrenchIcon,
-	ZapIcon,
 } from "lucide-react"
 import { memo, useCallback, useDeferredValue, useMemo, useRef, useState } from "react"
 import { useDisplayMode } from "../../hooks/use-agents"
@@ -42,8 +37,8 @@ import {
 	shortModelName,
 } from "../../lib/session-metrics"
 import type { FilePart, Part, ReasoningPart, TextPart, ToolPart } from "../../lib/types"
-import { ChatToolCall } from "./chat-tool-call"
-import { getToolCategory, type ToolCategory } from "./tool-card"
+import { ChatToolCall, getToolInfo, getToolSubtitle } from "./chat-tool-call"
+import { getToolCategory, TOOL_CATEGORY_COLORS, type ToolCategory } from "./tool-card"
 
 // ============================================================
 // Utility functions
@@ -104,76 +99,6 @@ function computeStatus(parts: Part[]): string {
 	}
 	return "Working..."
 }
-
-// ============================================================
-// Icon-pill summary bar
-// ============================================================
-
-/** Category info for icon pills */
-interface CategoryPill {
-	category: ToolCategory
-	count: number
-	icon: typeof WrenchIcon
-	label: string
-}
-
-/**
- * Groups tool parts into category pills for the compact summary.
- */
-function getToolPills(toolParts: ToolPart[]): CategoryPill[] {
-	const counts: Partial<Record<ToolCategory, number>> = {}
-	for (const part of toolParts) {
-		if (part.tool === "todowrite" || part.tool === "todoread") continue
-		const cat = getToolCategory(part.tool)
-		counts[cat] = (counts[cat] ?? 0) + 1
-	}
-
-	const pills: CategoryPill[] = []
-	const mapping: Array<{
-		category: ToolCategory
-		icon: typeof WrenchIcon
-		label: string
-	}> = [
-		{ category: "explore", icon: EyeIcon, label: "read" },
-		{ category: "edit", icon: EditIcon, label: "edit" },
-		{ category: "run", icon: TerminalIcon, label: "run" },
-		{ category: "delegate", icon: ZapIcon, label: "agent" },
-		{ category: "fetch", icon: GlobeIcon, label: "fetch" },
-		{ category: "ask", icon: WrenchIcon, label: "ask" },
-		{ category: "other", icon: WrenchIcon, label: "tool" },
-	]
-
-	for (const { category, icon, label } of mapping) {
-		const count = counts[category]
-		if (count && count > 0) {
-			pills.push({ category, count, icon, label })
-		}
-	}
-
-	return pills
-}
-
-/** Single pill in the summary bar */
-const ToolPill = memo(function ToolPill({ pill }: { pill: CategoryPill }) {
-	const Icon = pill.icon
-	return (
-		<Tooltip>
-			<TooltipTrigger
-				render={
-					<span className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground" />
-				}
-			>
-				<Icon className="size-3" />
-				<span>{pill.count}</span>
-			</TooltipTrigger>
-			<TooltipContent side="top">
-				<p className="text-xs">
-					{pill.count} {pill.label} {pill.count === 1 ? "call" : "calls"}
-				</p>
-			</TooltipContent>
-		</Tooltip>
-	)
-})
 
 // ============================================================
 // Synthetic message helpers
@@ -357,11 +282,6 @@ function getError(assistantMessages: ChatMessageEntry[]): string | undefined {
 	return undefined
 }
 
-/** Check if any tool parts have errors */
-function hasToolErrors(toolParts: ToolPart[]): boolean {
-	return toolParts.some((p) => p.state.status === "error")
-}
-
 // ============================================================
 // Turn comparison for memo
 // ============================================================
@@ -410,6 +330,173 @@ function areTurnsEqual(a: ChatTurnType, b: ChatTurnType): boolean {
 }
 
 // ============================================================
+// Default mode helpers — tool grouping
+// ============================================================
+
+/**
+ * Groups consecutive tool parts of the same category into summary items.
+ * Interleaves text and reasoning between groups to preserve natural order.
+ *
+ * Example output:
+ *   text: "Let me look at the code..."
+ *   tool-group: { category: "explore", tools: [read, grep, glob] }
+ *   text: "I found the issue, let me fix it..."
+ *   tool-group: { category: "edit", tools: [edit, write] }
+ *   tool-group: { category: "run", tools: [bash] }
+ */
+type StreamItem =
+	| { kind: "text"; id: string; text: string }
+	| { kind: "reasoning"; part: ReasoningPart }
+	| { kind: "tool-group"; category: ToolCategory; tools: ToolPart[] }
+
+function groupPartsForStream(ordered: RenderablePart[]): StreamItem[] {
+	const items: StreamItem[] = []
+	let currentGroup: { category: ToolCategory; tools: ToolPart[] } | null = null
+
+	const flushGroup = () => {
+		if (currentGroup) {
+			items.push({ kind: "tool-group", ...currentGroup })
+			currentGroup = null
+		}
+	}
+
+	for (const part of ordered) {
+		if (part.kind === "tool") {
+			const category = getToolCategory(part.part.tool)
+			if (currentGroup && currentGroup.category === category) {
+				currentGroup.tools.push(part.part)
+			} else {
+				flushGroup()
+				currentGroup = { category, tools: [part.part] }
+			}
+		} else {
+			flushGroup()
+			if (part.kind === "text") {
+				items.push({ kind: "text", id: part.id, text: part.text })
+			} else {
+				items.push({ kind: "reasoning", part: part.part })
+			}
+		}
+	}
+	flushGroup()
+	return items
+}
+
+/**
+ * Generates a human-readable summary for a group of tools in the same category.
+ * Returns text like "Read 3 files", "Edited foo.tsx, bar.tsx", "Ran 2 commands".
+ */
+function describeToolGroup(category: ToolCategory, tools: ToolPart[]): string {
+	const count = tools.length
+
+	// For small groups, list specific targets
+	if (count <= 3) {
+		const details = tools
+			.map((t) => getToolSubtitle(t))
+			.filter(Boolean)
+			.map((s) => {
+				// Shorten file paths to just the filename
+				const parts = s!.split("/")
+				return parts.length > 1 ? parts[parts.length - 1] : s
+			})
+
+		if (details.length > 0) {
+			switch (category) {
+				case "explore":
+					return count === 1 ? `Read ${details[0]}` : `Read ${details.join(", ")}`
+				case "edit":
+					return count === 1 ? `Edited ${details[0]}` : `Edited ${details.join(", ")}`
+				case "run":
+					return count === 1
+						? `Ran ${details[0]}`
+						: `Ran ${count} commands`
+				case "delegate":
+					return count === 1 ? `Delegated: ${details[0]}` : `Delegated ${count} tasks`
+				case "fetch":
+					return count === 1 ? `Fetched ${details[0]}` : `Fetched ${count} URLs`
+				case "ask":
+					return "Asked a question"
+				case "plan":
+					return "Updated plan"
+				default:
+					return `Ran ${details.join(", ")}`
+			}
+		}
+	}
+
+	// For larger groups, use count-based summaries
+	switch (category) {
+		case "explore":
+			return `Explored ${count} files`
+		case "edit":
+			return `Edited ${count} files`
+		case "run":
+			return `Ran ${count} commands`
+		case "delegate":
+			return `Delegated ${count} tasks`
+		case "fetch":
+			return `Fetched ${count} URLs`
+		case "ask":
+			return `Asked ${count} questions`
+		case "plan":
+			return "Updated plan"
+		default:
+			return `Ran ${count} tools`
+	}
+}
+
+/**
+ * Returns true if any tool in the group is still running/pending.
+ */
+function isGroupRunning(tools: ToolPart[]): boolean {
+	return tools.some((t) => t.state.status === "running" || t.state.status === "pending")
+}
+
+/**
+ * Returns true if any tool in the group has an error.
+ */
+function isGroupError(tools: ToolPart[]): boolean {
+	return tools.some((t) => t.state.status === "error")
+}
+
+/** Renders a single tool group summary as an inline element */
+const ToolGroupSummary = memo(function ToolGroupSummary({
+	category,
+	tools,
+}: {
+	category: ToolCategory
+	tools: ToolPart[]
+}) {
+	const description = describeToolGroup(category, tools)
+	const running = isGroupRunning(tools)
+	const hasError = isGroupError(tools)
+	const { icon: GroupIcon } = getToolInfo(tools[0].tool)
+	const borderColor = TOOL_CATEGORY_COLORS[category]
+
+	return (
+		<div
+			className={`flex items-center gap-2 rounded-md border-l-2 bg-muted/20 px-3 py-1.5 text-[12px] ${borderColor}`}
+		>
+			<GroupIcon
+				className={`size-3.5 shrink-0 ${
+					hasError
+						? "text-red-400"
+						: running
+							? "animate-pulse text-muted-foreground"
+							: "text-muted-foreground/50"
+				}`}
+			/>
+			<span className={hasError ? "text-red-400" : "text-muted-foreground/70"}>
+				{description}
+			</span>
+			{running && (
+				<Loader2Icon className="ml-auto size-3 animate-spin text-muted-foreground/30" />
+			)}
+		</div>
+	)
+})
+
+// ============================================================
 // ChatTurnComponent
 // ============================================================
 
@@ -434,10 +521,11 @@ interface ChatTurnProps {
  * - **Completed turn**: icon-pill summary bar with one-click expand to show
  *   individual tools. Response text is always visible.
  *
- * Display mode preference (default/compact/verbose) modifies behavior:
- * - default: active turn shows tools, completed turns use pill bar
- * - compact: active turn shows only last 3 tools, rest in pill bar
- * - verbose: all turns show all tools expanded
+ * Display mode preference (default/verbose) modifies behavior:
+ * - default: interleaved text + grouped tool summaries as inline chips.
+ *   Tool groups batch consecutive same-category calls (e.g., "Explored 3 files",
+ *   "Edited foo.tsx, bar.tsx"). A "Show N steps" toggle reveals full tool cards.
+ * - verbose: all turns show all tools expanded with full content (tool cards)
  */
 export const ChatTurnComponent = memo(
 	function ChatTurnComponent({
@@ -488,7 +576,7 @@ export const ChatTurnComponent = memo(
 		const isQueuedLast = isWorking && turn.assistantMessages.length === 0 && isLast
 		const hasSteps = toolParts.length > 0
 		const hasReasoning = orderedParts.some((p) => p.kind === "reasoning")
-		const hasErrors = useMemo(() => hasToolErrors(toolParts), [toolParts])
+
 		const duration = useMemo(() => formatWorkDuration(computeTurnWorkTime(turn)), [turn])
 		const turnCostStr = useMemo(() => {
 			const cost = computeTurnCost(turn)
@@ -504,34 +592,28 @@ export const ChatTurnComponent = memo(
 			return ""
 		}, [turn.assistantMessages])
 
-		// Icon pills for the compact summary bar
-		const pills = useMemo(() => getToolPills(toolParts), [toolParts])
-
 		// Determine if tools should be shown individually (active turn behavior)
 		const isActiveTurn = working
-		const showToolsExpanded = displayMode === "verbose" || isActiveTurn || stepsExpanded
+		const isVerbose = displayMode === "verbose"
 
-		// In compact mode during active turn, only show the last N ordered parts
-		const visibleParts = useMemo(() => {
-			if (displayMode === "compact" && isActiveTurn && orderedParts.length > 5) {
-				return orderedParts.slice(-5)
-			}
-			return orderedParts
-		}, [displayMode, isActiveTurn, orderedParts])
+		// In default mode, we render a "stream" of grouped tool summaries + text.
+		// In verbose mode, we render full tool cards.
+		// stepsExpanded forces verbose rendering on a per-turn basis.
+		const showVerboseTools = isVerbose || stepsExpanded
 
-		// How many parts are hidden in compact mode
-		const hiddenCount =
-			displayMode === "compact" && isActiveTurn ? Math.max(0, orderedParts.length - 5) : 0
+		// Grouped stream items for the default (non-verbose) rendering path
+		const streamItems = useMemo(
+			() => (showVerboseTools ? [] : groupPartsForStream(orderedParts)),
+			[showVerboseTools, orderedParts],
+		)
 
-		// When expanded, all text parts are already rendered inline within the
-		// ordered parts list. The separate "final response" block should only
-		// appear when collapsed (pill bar mode) to show the response below the summary.
-		// Note: text is only inline if the tools/steps section actually renders
-		// (requires working || hasSteps || hasReasoning), otherwise the inline
-		// rendering block is skipped and we must fall through to the standalone block.
+		// In default mode, the text is always rendered inline within the stream.
+		// In verbose mode, the text is inline within the expanded ordered parts.
+		// The standalone "final response" block only appears when no tools/reasoning
+		// section is visible (pure text-only turn).
 		const toolsSectionVisible = working || hasSteps || hasReasoning
 		const textAlreadyInline =
-			showToolsExpanded && toolsSectionVisible && orderedParts.some((p) => p.kind === "text")
+			toolsSectionVisible && orderedParts.some((p) => p.kind === "text")
 
 		const handleCopyResponse = useCallback(async () => {
 			if (!responseText) return
@@ -608,100 +690,116 @@ export const ChatTurnComponent = memo(
 				{/* Tool calls + reasoning section */}
 				{(working || hasSteps || hasReasoning) && (
 					<div className="space-y-2">
-						{/* Summary bar — shown when NOT expanded (completed turns) */}
-						{!showToolsExpanded && hasSteps && (
-							<button
-								type="button"
-								onClick={() => setStepsExpanded(true)}
-								className="flex items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
-							>
-								<ChevronDownIcon className="size-3 -rotate-90" />
-								<div className="flex items-center gap-1.5">
-									{pills.map((pill) => (
-										<ToolPill key={pill.category} pill={pill} />
-									))}
-								</div>
-								<span className="text-muted-foreground/40">
-									{turnModel && `${turnModel} · `}
-									{duration}
-									{turnCostStr && ` · ${turnCostStr}`}
-								</span>
-								{hasErrors && (
-									<span className="rounded-full bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
-										errors
-									</span>
-								)}
-							</button>
-						)}
-
-						{/* Reasoning blocks — always visible (they have their own collapse) */}
-						{!showToolsExpanded && hasReasoning && (
-							<div className="space-y-2">
-								{orderedParts
-									.filter(
-										(p): p is Extract<RenderablePart, { kind: "reasoning" }> =>
-											p.kind === "reasoning",
-									)
-									.map((item) => {
-										const reasoningText = item.part.text.replace("[REDACTED]", "").trim()
-										if (!reasoningText) return null
-										const durationSec = item.part.time.end
-											? Math.ceil((item.part.time.end - item.part.time.start) / 1000)
-											: undefined
-										return (
-											<Reasoning
-												key={item.part.id}
-												isStreaming={false}
-												duration={durationSec}
-												defaultOpen={false}
-											>
-												<ReasoningTrigger />
-												<ReasoningContent>{reasoningText}</ReasoningContent>
-											</Reasoning>
-										)
-									})}
-							</div>
-						)}
-
-						{/* Collapse button — shown when expanded on completed turns */}
-						{showToolsExpanded && !isActiveTurn && hasSteps && (
-							<button
-								type="button"
-								onClick={() => setStepsExpanded(false)}
-								className="flex items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
-							>
-								<ChevronDownIcon className="size-3" />
-								<span className="text-muted-foreground/60">
-									{toolParts.length} {toolParts.length === 1 ? "step" : "steps"}
-								</span>
-								<span className="text-muted-foreground/40">
-									{turnModel && `${turnModel} · `}
-									{duration}
-									{turnCostStr && ` · ${turnCostStr}`}
-								</span>
-							</button>
-						)}
-
-						{/* Active turn status line (while working, before tools/reasoning appear) */}
+						{/* Working shimmer — shown before any tools/reasoning appear */}
 						{working && !hasSteps && !hasReasoning && (
 							<div className="flex items-center gap-2 text-xs text-muted-foreground">
+								<Loader2Icon className="size-3 animate-spin text-muted-foreground/40" />
 								<Shimmer className="text-xs">{statusText}</Shimmer>
 							</div>
 						)}
 
-						{/* Hidden parts indicator (compact mode) */}
-						{showToolsExpanded && hiddenCount > 0 && (
-							<div className="flex items-center gap-1.5 pl-1 text-[11px] text-muted-foreground/50">
-								<span>
-									+ {hiddenCount} earlier {hiddenCount === 1 ? "step" : "steps"}
-								</span>
+						{/* ── Default mode: interleaved text + grouped tool summaries ── */}
+						{!showVerboseTools && (
+							<div className="space-y-3">
+								{streamItems.map((item, idx) => {
+									if (item.kind === "text") {
+										return (
+											<div key={item.id} className="py-0.5">
+												<Message from="assistant">
+													<MessageContent>
+														<MessageResponse>{item.text}</MessageResponse>
+													</MessageContent>
+												</Message>
+											</div>
+										)
+									}
+									if (item.kind === "reasoning") {
+										const reasoningText = item.part.text
+											.replace("[REDACTED]", "")
+											.trim()
+										if (!reasoningText) return null
+										const durationSec = item.part.time.end
+											? Math.ceil(
+													(item.part.time.end - item.part.time.start) / 1000,
+												)
+											: undefined
+										const isReasoningStreaming = !item.part.time.end && working
+										return (
+											<Reasoning
+												key={item.part.id}
+												isStreaming={isReasoningStreaming}
+												duration={durationSec}
+												defaultOpen={isReasoningStreaming ? undefined : false}
+											>
+												<ReasoningTrigger />
+												<ReasoningContent animated={isReasoningStreaming}>
+													{reasoningText}
+												</ReasoningContent>
+											</Reasoning>
+										)
+									}
+									// tool-group
+									return (
+										<ToolGroupSummary
+											key={`group-${idx}-${item.tools[0].id}`}
+											category={item.category}
+											tools={item.tools}
+										/>
+									)
+								})}
+								{/* Live status while the agent is still working */}
+								{working && hasSteps && (
+									<div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+										<Loader2Icon className="size-3 animate-spin text-muted-foreground/30" />
+										<Shimmer className="text-[11px]">{statusText}</Shimmer>
+									</div>
+								)}
 							</div>
 						)}
 
-						{/* Expanded: interleaved text + reasoning + tool calls in natural order */}
-						{showToolsExpanded && (
+						{/* Toggle to verbose view on completed turns in default mode */}
+						{!showVerboseTools && !isActiveTurn && hasSteps && (
+							<button
+								type="button"
+								onClick={() => setStepsExpanded(true)}
+								className="flex items-center gap-1.5 text-[11px] text-muted-foreground/40 transition-colors hover:text-foreground"
+							>
+								<ChevronDownIcon className="size-3 -rotate-90" />
+								<span>
+									Show {toolParts.length} {toolParts.length === 1 ? "step" : "steps"}
+								</span>
+								<span>
+									{turnModel && `· ${turnModel} `}
+									{duration && `· ${duration} `}
+									{turnCostStr && `· ${turnCostStr}`}
+								</span>
+							</button>
+						)}
+
+						{/* ── Verbose mode: full tool cards ──────────────────────── */}
+
+						{/* Collapse back to default view */}
+						{showVerboseTools && !isVerbose && !isActiveTurn && hasSteps && (
+							<button
+								type="button"
+								onClick={() => setStepsExpanded(false)}
+								className="flex items-center gap-1.5 text-[11px] text-muted-foreground/40 transition-colors hover:text-foreground"
+							>
+								<ChevronDownIcon className="size-3" />
+								<span>
+									Hide {toolParts.length} {toolParts.length === 1 ? "step" : "steps"}
+								</span>
+								<span>
+									{turnModel && `· ${turnModel} `}
+									{duration && `· ${duration} `}
+									{turnCostStr && `· ${turnCostStr}`}
+								</span>
+							</button>
+						)}
+
+						{showVerboseTools && (
 							<div className="space-y-3.5">
-								{visibleParts.map((item) => {
+								{orderedParts.map((item) => {
 									if (item.kind === "tool") {
 										return (
 											<ChatToolCall
@@ -754,12 +852,7 @@ export const ChatTurnComponent = memo(
 					</div>
 				)}
 
-				{/* Thinking shimmer — shown when working and no response text yet */}
-				{working && !responseText && hasSteps && (
-					<div className="py-1">
-						<Shimmer className="text-sm">{statusText}</Shimmer>
-					</div>
-				)}
+				{/* Thinking shimmer — only for turns with no tools/reasoning section yet */}
 
 				{/* Assistant response — shown when not working AND not already rendered inline */}
 				{!working && responseText && !textAlreadyInline && (
