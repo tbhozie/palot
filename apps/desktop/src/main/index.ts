@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process"
+import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { app, BrowserWindow, Menu, session, shell } from "electron"
@@ -50,9 +51,44 @@ const disabledFeatures: string[] = []
 disabledFeatures.push("HttpsUpgrades")
 app.commandLine.appendSwitch("allow-insecure-localhost")
 
-// Linux/Wayland: enable native Wayland rendering and fix fractional scaling.
-// These flags must be set before app.whenReady().
+// Linux/Wayland: ensure GTK can find the GdkPixbuf loader modules and enable
+// native Wayland rendering. These must be set before app.whenReady() since GTK
+// initializes during that call.
 if (process.platform === "linux") {
+	// GTK needs the GdkPixbuf loaders cache to decode PNG/SVG icons from the
+	// icon theme. Electron's bundled Chromium often can't locate the host system's
+	// loaders, causing "Could not load a pixbuf from icon theme" warnings and
+	// continuous GDK_IS_PIXBUF assertion failures — especially visible on Wayland
+	// where GTK renders client-side window decorations (close/minimize/maximize
+	// button icons are loaded from the theme on every frame).
+	if (!process.env.GDK_PIXBUF_MODULE_FILE) {
+		let loadersCachePath: string | undefined
+
+		// Try pkg-config first — works across distros regardless of lib path layout
+		try {
+			loadersCachePath = execSync(
+				"pkg-config --variable gdk_pixbuf_cache_file gdk-pixbuf-2.0",
+				{ encoding: "utf-8", timeout: 1000, stdio: ["ignore", "pipe", "ignore"] },
+			).trim()
+		} catch {
+			// pkg-config not installed or gdk-pixbuf-2.0 not registered — try known paths
+		}
+
+		if (!loadersCachePath || !fs.existsSync(loadersCachePath)) {
+			const candidates = [
+				"/usr/lib64/gdk-pixbuf-2.0/2.10.0/loaders.cache", // Fedora, RHEL, openSUSE
+				"/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders.cache", // Debian, Ubuntu
+				"/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache", // Arch
+			]
+			loadersCachePath = candidates.find((p) => fs.existsSync(p))
+		}
+
+		if (loadersCachePath) {
+			process.env.GDK_PIXBUF_MODULE_FILE = loadersCachePath
+			log.info(`Set GDK_PIXBUF_MODULE_FILE=${loadersCachePath}`)
+		}
+	}
+
 	app.commandLine.appendSwitch("ozone-platform-hint", "auto")
 	app.commandLine.appendSwitch("enable-features", "WaylandWindowDecorations")
 	app.commandLine.appendSwitch("enable-wayland-ime")
@@ -122,24 +158,37 @@ async function createWindow(): Promise<BrowserWindow> {
 	const isOpaque = getOpaqueWindowsPref()
 	const chrome = await resolveWindowChrome(isOpaque)
 
+	// Resolve the window icon for Linux/Windows. macOS uses the .app bundle icon.
+	// Linux: use 256x256 icon — GTK's GdkPixbuf can choke on the full 1024x1024
+	// icon on Wayland, causing GDK_IS_PIXBUF assertion failures.
+	const windowIcon = isMac
+		? undefined
+		: app.isPackaged
+			? path.join(process.resourcesPath, "icon.png")
+			: path.join(
+					__dirname,
+					process.platform === "linux"
+						? "../../resources/linux-icons/256x256.png"
+						: "../../resources/icon.png",
+				)
+
 	const win = new BrowserWindow({
 		title,
 		width: 1200,
 		height: 800,
 		minWidth: 900,
 		minHeight: 600,
-		// Fully transparent background — required for glass/vibrancy to show through
-		backgroundColor: "#00000000",
+		// Transparent background for macOS glass/vibrancy tiers.
+		// On Linux/Windows (always opaque tier) use a solid background to prevent
+		// the window from being see-through while the renderer loads.
+		backgroundColor: isMac ? "#00000000" : "#000000",
+		// Don't show the window until the renderer has painted its first frame.
+		// Prevents a flash of transparent/empty content, especially on Wayland.
+		show: false,
 		// Three-tier window chrome — options from resolveWindowChrome()
 		...chrome.options,
-		// Set window icon for Linux/Windows (macOS uses the .app bundle icon).
-		// In packaged builds, icon.png lives in process.resourcesPath (via extraResources).
-		// In dev mode, it's at the project's resources/ directory.
-		...(!isMac && {
-			icon: app.isPackaged
-				? path.join(process.resourcesPath, "icon.png")
-				: path.join(__dirname, "../../resources/icon.png"),
-		}),
+		// Window icon for Linux/Windows
+		...(windowIcon && { icon: windowIcon }),
 		webPreferences: {
 			preload: path.join(__dirname, "../preload/index.cjs"),
 			contextIsolation: true,
@@ -148,6 +197,12 @@ async function createWindow(): Promise<BrowserWindow> {
 			spellcheck: false,
 			v8CacheOptions: "bypassHeatCheckAndEagerCompile",
 		},
+	})
+
+	// Show the window once the renderer has painted — avoids a flash of
+	// transparent/blank content while the page loads.
+	win.once("ready-to-show", () => {
+		win.show()
 	})
 
 	// Install liquid glass effect after window creation (tier 1 only)
