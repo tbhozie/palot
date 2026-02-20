@@ -25,6 +25,7 @@ import {
 	Loader2Icon,
 	SendIcon,
 	Undo2Icon,
+	XIcon,
 } from "lucide-react"
 import { memo, useCallback, useDeferredValue, useMemo, useRef, useState } from "react"
 import { useDisplayMode } from "../../hooks/use-agents"
@@ -149,46 +150,81 @@ function getFileParts(entry: ChatMessageEntry): FilePart[] {
 // Attachment grid
 // ============================================================
 
-const AttachmentGrid = memo(function AttachmentGrid({ files }: { files: FilePart[] }) {
+const AttachmentGrid = memo(function AttachmentGrid({
+	files,
+	onDelete,
+}: { files: FilePart[]; onDelete?: (file: FilePart) => void }) {
 	if (files.length === 0) return null
 	return (
 		<div className="flex flex-wrap gap-2">
 			{files.map((file) => (
-				<AttachmentThumbnail key={file.id} file={file} />
+				<AttachmentThumbnail key={file.id} file={file} onDelete={onDelete} />
 			))}
 		</div>
 	)
 })
 
-function AttachmentThumbnail({ file }: { file: FilePart }) {
+function AttachmentThumbnail({
+	file,
+	onDelete,
+}: { file: FilePart; onDelete?: (file: FilePart) => void }) {
 	const isImage = file.mime.startsWith("image/")
+	const [deleting, setDeleting] = useState(false)
+
+	const handleDelete = useCallback(
+		async (e: React.MouseEvent) => {
+			e.stopPropagation()
+			if (!onDelete || deleting) return
+			setDeleting(true)
+			try {
+				await onDelete(file)
+			} finally {
+				setDeleting(false)
+			}
+		},
+		[onDelete, file, deleting],
+	)
+
 	return (
 		<Dialog>
-			<DialogTrigger
-				render={
+			<div className="group/thumb relative size-16 shrink-0">
+				{onDelete && (
 					<button
 						type="button"
-						className="group/thumb relative size-16 shrink-0 overflow-hidden rounded-lg border border-border bg-muted transition-colors hover:border-muted-foreground/30"
-					/>
-				}
-			>
-				{isImage ? (
-					<img
-						src={file.url}
-						alt={file.filename ?? "Image attachment"}
-						className="size-full object-cover"
-					/>
-				) : (
-					<div className="flex size-full items-center justify-center">
-						<FileIcon className="size-6 text-muted-foreground" />
-					</div>
+						onClick={handleDelete}
+						disabled={deleting}
+						className="absolute -right-1 -top-1 z-10 flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 shadow-sm transition-opacity hover:bg-destructive/90 group-hover/thumb:opacity-100 disabled:opacity-50"
+						title="Remove attachment"
+					>
+						<XIcon className="size-2.5" />
+					</button>
 				)}
-				{file.filename && (
-					<div className="absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5 text-[9px] leading-tight text-white opacity-0 transition-opacity group-hover/thumb:opacity-100">
-						<span className="line-clamp-1">{file.filename}</span>
-					</div>
-				)}
-			</DialogTrigger>
+				<DialogTrigger
+					render={
+						<button
+							type="button"
+							className="size-full overflow-hidden rounded-lg border border-border bg-muted transition-colors hover:border-muted-foreground/30"
+						/>
+					}
+				>
+					{isImage ? (
+						<img
+							src={file.url}
+							alt={file.filename ?? "Image attachment"}
+							className="size-full object-cover"
+						/>
+					) : (
+						<div className="flex size-full items-center justify-center">
+							<FileIcon className="size-6 text-muted-foreground" />
+						</div>
+					)}
+					{file.filename && (
+						<div className="absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5 text-[9px] leading-tight text-white opacity-0 transition-opacity group-hover/thumb:opacity-100">
+							<span className="line-clamp-1">{file.filename}</span>
+						</div>
+					)}
+				</DialogTrigger>
+			</div>
 			<DialogContent className="max-h-[90vh] max-w-4xl overflow-auto p-0">
 				<DialogTitle className="sr-only">{file.filename ?? "Attachment preview"}</DialogTitle>
 				{isImage ? (
@@ -527,6 +563,8 @@ interface ChatTurnProps {
 	onSendNow?: (turn: ChatTurnType) => Promise<void>
 	/** Fork the conversation from this turn boundary */
 	onForkFromTurn?: () => Promise<void>
+	/** Delete a specific part from a message (for error recovery) */
+	onDeletePart?: (sessionId: string, messageId: string, partId: string) => Promise<void>
 }
 
 /**
@@ -552,6 +590,7 @@ export const ChatTurnComponent = memo(
 		onRevertToMessage,
 		onSendNow,
 		onForkFromTurn,
+		onDeletePart,
 	}: ChatTurnProps) {
 		const [stepsExpanded, setStepsExpanded] = useState(false)
 		const [copied, setCopied] = useState(false)
@@ -670,6 +709,22 @@ export const ChatTurnComponent = memo(
 			}
 		}, [onSendNow, sendingNow, turn])
 
+		const handleDeleteFile = useCallback(
+			async (file: FilePart) => {
+				if (!onDeletePart) return
+				await onDeletePart(file.sessionID, file.messageID, file.id)
+			},
+			[onDeletePart],
+		)
+
+		const handleDeleteToolPart = useCallback(
+			async (toolPart: ToolPart) => {
+				if (!onDeletePart) return
+				await onDeletePart(toolPart.sessionID, toolPart.messageID, toolPart.id)
+			},
+			[onDeletePart],
+		)
+
 		return (
 			<div ref={turnRef} className="group/turn space-y-4">
 				{/* User message */}
@@ -681,7 +736,12 @@ export const ChatTurnComponent = memo(
 				) : (
 					<Message from="user">
 						<MessageContent>
-							{userFiles.length > 0 && <AttachmentGrid files={userFiles} />}
+							{userFiles.length > 0 && (
+								<AttachmentGrid
+									files={userFiles}
+									onDelete={onDeletePart ? handleDeleteFile : undefined}
+								/>
+							)}
 							<p className="whitespace-pre-wrap">{userText}</p>
 							{(isQueued || isQueuedLast) && (
 								<span className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground/60">
@@ -833,6 +893,8 @@ export const ChatTurnComponent = memo(
 												key={item.part.id}
 												part={item.part}
 												isActiveTurn={isActiveTurn}
+												turnHasError={!!errorText}
+												onDelete={onDeletePart ? handleDeleteToolPart : undefined}
 											/>
 										)
 									}

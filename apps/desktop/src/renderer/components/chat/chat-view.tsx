@@ -415,6 +415,8 @@ interface ChatViewProps {
 	onRevertToMessage?: (messageId: string) => Promise<void>
 	/** Fork from a turn boundary (messageId of the next turn's user message, or undefined for full fork) */
 	onForkFromTurn?: (messageId?: string) => Promise<void>
+	/** Delete a specific part from a message (for error recovery) */
+	onDeletePart?: (sessionId: string, messageId: string, partId: string) => Promise<void>
 	/** Whether the review panel is open (removes max-w constraint) */
 	reviewPanelOpen?: boolean
 }
@@ -453,6 +455,7 @@ export function ChatView({
 	isReverted,
 	onRevertToMessage,
 	onForkFromTurn,
+	onDeletePart,
 	reviewPanelOpen,
 }: ChatViewProps) {
 	const isWorking = agent.status === "running"
@@ -644,6 +647,7 @@ export function ChatView({
 												}
 											: undefined
 									}
+									onDeletePart={onDeletePart}
 								/>
 							))
 							) : setupPhase ? (

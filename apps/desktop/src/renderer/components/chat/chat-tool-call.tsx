@@ -35,6 +35,7 @@ import {
 	SquareCheckIcon,
 	TerminalIcon,
 	WrenchIcon,
+	XIcon,
 	ZapIcon,
 } from "lucide-react"
 import type { ReactNode } from "react"
@@ -907,6 +908,10 @@ interface ChatToolCallProps {
 	part: ToolPart
 	/** Whether this tool is in the active (last) turn */
 	isActiveTurn?: boolean
+	/** Whether the turn containing this tool has an error (enables delete action) */
+	turnHasError?: boolean
+	/** Delete this tool part (for error recovery) */
+	onDelete?: (part: ToolPart) => void
 	/** Permission data to render inline */
 	permission?: { id: string; permission: string; metadata?: Record<string, unknown> }
 	onApprove?: (permissionId: string, response: "once" | "always") => void
@@ -940,6 +945,8 @@ export const ChatToolCall = memo(
 	function ChatToolCall({
 		part,
 		isActiveTurn = false,
+		turnHasError = false,
+		onDelete,
 		permission,
 		onApprove,
 		onDeny,
@@ -1037,6 +1044,38 @@ export const ChatToolCall = memo(
 			)
 		}, [editFilePath, status, trailingElement, handleViewDiff])
 
+		// When the turn has an error, add a delete button so the user can
+		// surgically remove a problematic tool part and continue the conversation.
+		const handleDelete = useCallback(
+			(e: React.MouseEvent) => {
+				e.stopPropagation()
+				onDelete?.(part)
+			},
+			[onDelete, part],
+		)
+
+		const finalTrailing = useMemo(() => {
+			if (!turnHasError || !onDelete) return combinedTrailing
+			const deleteButton = (
+				<button
+					key="delete-part"
+					type="button"
+					onClick={handleDelete}
+					className="rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-red-500/20 hover:text-red-400"
+					title="Remove this tool call to recover from the error"
+				>
+					<XIcon className="size-3" aria-hidden="true" />
+				</button>
+			)
+			if (!combinedTrailing) return deleteButton
+			return (
+				<span className="flex items-center gap-2">
+					{combinedTrailing}
+					{deleteButton}
+				</span>
+			)
+		}, [turnHasError, onDelete, combinedTrailing, handleDelete])
+
 		// Skip rendering todoread parts without output
 		if (part.tool === "todoread" && part.state.status !== "completed") return null
 
@@ -1064,7 +1103,7 @@ export const ChatToolCall = memo(
 					icon={<Icon className="size-3.5" />}
 					title={title}
 					subtitle={subtitle}
-					trailing={combinedTrailing}
+					trailing={finalTrailing}
 					category={category}
 					defaultOpen={defaultOpen}
 					forceOpen={
@@ -1109,8 +1148,9 @@ export const ChatToolCall = memo(
 	(prev, next) => {
 		if (!areToolPartsEqual(prev.part, next.part)) return false
 		if (prev.isActiveTurn !== next.isActiveTurn) return false
+		if (prev.turnHasError !== next.turnHasError) return false
 		if (prev.permission !== next.permission) return false
-		// onApprove/onDeny are callback refs - skip reference comparison to avoid
+		// onApprove/onDeny/onDelete are callback refs - skip reference comparison to avoid
 		// re-renders from parent creating new closures
 		return true
 	},

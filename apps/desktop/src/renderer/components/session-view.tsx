@@ -41,6 +41,7 @@ export function SessionView({ sessionId }: SessionViewProps) {
 		replyToQuestion,
 		rejectQuestion,
 		forkSession,
+		deletePart,
 	} = useAgentActions()
 
 	// Track which session is currently viewed so background sessions can
@@ -144,6 +145,14 @@ export function SessionView({ sessionId }: SessionViewProps) {
 		[selectedAgent, forkSession, projectSlug, navigate],
 	)
 
+	const handleDeletePart = useCallback(
+		async (sessionId: string, messageId: string, partId: string) => {
+			if (!selectedAgent) return
+			await deletePart(selectedAgent.directory, sessionId, messageId, partId)
+		},
+		[selectedAgent, deletePart],
+	)
+
 	const handleSendMessage = useCallback(
 		async (
 			agent: Agent,
@@ -221,6 +230,7 @@ export function SessionView({ sessionId }: SessionViewProps) {
 			isReverted={isReverted}
 			onRevertToMessage={revertToMessage}
 			onForkFromTurn={handleForkFromTurn}
+			onDeletePart={handleDeletePart}
 		/>
 	)
 }
