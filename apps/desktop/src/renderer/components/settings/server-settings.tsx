@@ -19,6 +19,7 @@ import {
 } from "@palot/ui/components/dialog"
 import { Input } from "@palot/ui/components/input"
 import { Label } from "@palot/ui/components/label"
+import { Switch } from "@palot/ui/components/switch"
 import {
 	CheckCircle2Icon,
 	ChevronRightIcon,
@@ -258,6 +259,8 @@ function LocalServerSettings() {
 	const [port, setPort] = useState(localServer?.port?.toString() ?? "")
 	const [password, setPassword] = useState("")
 	const [hasPassword, setHasPassword] = useState(localServer?.hasPassword ?? false)
+	const [mdns, setMdns] = useState(localServer?.mdns ?? false)
+	const [mdnsDomain, setMdnsDomain] = useState(localServer?.mdnsDomain ?? "")
 	const [saving, setSaving] = useState(false)
 	const [saved, setSaved] = useState(false)
 
@@ -266,21 +269,27 @@ function LocalServerSettings() {
 		setHostname(localServer?.hostname ?? "")
 		setPort(localServer?.port?.toString() ?? "")
 		setHasPassword(localServer?.hasPassword ?? false)
-	}, [localServer?.hostname, localServer?.port, localServer?.hasPassword])
+		setMdns(localServer?.mdns ?? false)
+		setMdnsDomain(localServer?.mdnsDomain ?? "")
+	}, [localServer?.hostname, localServer?.port, localServer?.hasPassword, localServer?.mdns, localServer?.mdnsDomain])
 
 	// Track whether form values differ from persisted settings
 	const isDirty = useMemo(() => {
 		const currentHostname = localServer?.hostname ?? ""
 		const currentPort = localServer?.port?.toString() ?? ""
 		const currentHasPassword = localServer?.hasPassword ?? false
+		const currentMdns = localServer?.mdns ?? false
+		const currentMdnsDomain = localServer?.mdnsDomain ?? ""
 
 		return (
 			hostname !== currentHostname ||
 			port !== currentPort ||
 			password.length > 0 ||
-			hasPassword !== currentHasPassword
+			hasPassword !== currentHasPassword ||
+			mdns !== currentMdns ||
+			mdnsDomain !== currentMdnsDomain
 		)
-	}, [hostname, port, password, hasPassword, localServer])
+	}, [hostname, port, password, hasPassword, mdns, mdnsDomain, localServer])
 
 	const handleSave = useCallback(async () => {
 		setSaving(true)
@@ -306,6 +315,8 @@ function LocalServerSettings() {
 					hostname: hostname.trim() || undefined,
 					port: port.trim() ? Number.parseInt(port.trim(), 10) : undefined,
 					hasPassword: password.length > 0 ? true : hasPassword,
+					mdns,
+					mdnsDomain: mdnsDomain.trim() || undefined,
 				} satisfies LocalServerConfig
 			})
 
@@ -327,7 +338,7 @@ function LocalServerSettings() {
 		} finally {
 			setSaving(false)
 		}
-	}, [hostname, port, password, hasPassword, settings, updateSettings])
+	}, [hostname, port, password, hasPassword, mdns, mdnsDomain, settings, updateSettings])
 
 	const handleClearPassword = useCallback(async () => {
 		if (isElectron) {
@@ -415,6 +426,27 @@ function LocalServerSettings() {
 						/>
 					</div>
 				</SettingsRow>
+
+				<SettingsRow
+					label="mDNS Discovery"
+					description="Advertise this server on the local network so other devices can discover it."
+				>
+					<Switch checked={mdns} onCheckedChange={setMdns} />
+				</SettingsRow>
+
+				{mdns && (
+					<SettingsRow
+						label="mDNS Domain"
+						description='Custom domain name for mDNS (default: "opencode.local").'
+					>
+						<Input
+							className="w-[200px]"
+							placeholder="opencode.local"
+							value={mdnsDomain}
+							onChange={(e) => setMdnsDomain(e.target.value)}
+						/>
+					</SettingsRow>
+				)}
 
 				<div className="flex items-center justify-between px-4 py-3">
 					<div className="flex items-center gap-2">

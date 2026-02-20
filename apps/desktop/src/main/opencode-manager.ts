@@ -92,10 +92,19 @@ export async function ensureServer(): Promise<OpenCodeServer> {
 		}
 	}
 
+	// Add mDNS flags if enabled
+	if (config.mdns) {
+		args.push("--mdns")
+		if (config.mdnsDomain) {
+			args.push(`--mdns-domain=${config.mdnsDomain}`)
+		}
+	}
+
 	log.info("Spawning opencode server", {
 		hostname,
 		port,
 		hasPassword: !!config.hasPassword,
+		mdns: !!config.mdns,
 		binDir: opencodeBinDir,
 	})
 
