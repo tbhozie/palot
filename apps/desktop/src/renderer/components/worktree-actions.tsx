@@ -4,7 +4,7 @@
  * Shows "Apply to project" and "Commit & Push" actions for worktree sessions.
  * "Apply to project" patches the worktree's uncommitted changes into the main
  * project checkout (the parent directory of the worktree).
- * "Commit & Push" commits all changes and pushes the branch to origin.
+ * "Commit & Push" commits all changes and pushes the current branch to origin.
  */
 
 import { Button } from "@palot/ui/components/button"
@@ -33,6 +33,7 @@ import type { GitDiffStat } from "../../preload/api"
 import type { Agent } from "../lib/types"
 import {
 	fetchDiffStat,
+	fetchGitBranches,
 	getGitRemoteUrl,
 	gitApplyToLocal,
 	gitCommitAll,
@@ -200,13 +201,13 @@ function CommitDialog({
 	const [success, setSuccess] = useState<string | null>(null)
 
 	// Branch: worktree has worktreeBranch (may be empty); local has agent.branch.
-	const [branchName, setBranchName] = useState(agent.worktreeBranch ?? agent.branch ?? "")
-	const hasBranch = !!(agent.worktreeBranch ?? agent.branch)
+	const [branchName, setBranchName] = useState(agent.worktreeBranch || agent.branch || "")
+	const hasBranch = Boolean(agent.worktreeBranch || agent.branch)
 
 	// Sync branch name when dialog opens or agent changes
 	useEffect(() => {
 		if (open) {
-			setBranchName(agent.worktreeBranch ?? agent.branch ?? "")
+			setBranchName(agent.worktreeBranch || agent.branch || "")
 		}
 	}, [open, agent.worktreeBranch, agent.branch])
 
@@ -228,9 +229,12 @@ function CommitDialog({
 		setError(null)
 
 		try {
+			const requestedBranchName = branchName.trim()
+			let prOpened = false
+
 			// Step 1: Create branch if we don't have one yet (worktree with new branch)
-			if (!hasBranch && branchName) {
-				const branchResult = await gitCreateBranch(repoPath, branchName)
+			if (!hasBranch && requestedBranchName) {
+				const branchResult = await gitCreateBranch(repoPath, requestedBranchName)
 				if (!branchResult.success) {
 					setError(`Branch creation failed: ${branchResult.error}`)
 					return
@@ -260,15 +264,21 @@ function CommitDialog({
 			if (step === "commit-push-pr" && repoPath) {
 				// Construct a GitHub new-PR URL. Best-effort for GitHub repos.
 				try {
-					const effectiveBranch = branchName || agent.worktreeBranch || agent.branch || ""
+					let effectiveBranch =
+						requestedBranchName || agent.worktreeBranch || agent.branch || ""
+					if (!effectiveBranch) {
+						const branchInfo = await fetchGitBranches(repoPath)
+						effectiveBranch = branchInfo.current
+					}
 					if (effectiveBranch) {
 						const remoteUrl = await getGitRemoteUrl(repoPath)
 						if (remoteUrl) {
 							const match = remoteUrl.match(/(?:github\.com)[/:](.+?)(?:\.git)?$/)
 							if (match) {
-								const repoPath = match[1]
-								const prUrl = `https://github.com/${repoPath}/compare/${effectiveBranch}?expand=1`
+								const githubRepoPath = match[1]
+								const prUrl = `https://github.com/${githubRepoPath}/compare/${effectiveBranch}?expand=1`
 								window.open(prUrl, "_blank")
+								prOpened = true
 							}
 						}
 					}
@@ -282,7 +292,9 @@ function CommitDialog({
 					? "Committed successfully"
 					: step === "commit-push"
 						? "Committed and pushed"
-						: "Committed, pushed, and PR page opened",
+						: prOpened
+							? "Committed, pushed, and PR page opened"
+							: "Committed and pushed (PR page was not opened automatically)",
 			)
 			setTimeout(() => onOpenChange(false), 1500)
 		} catch (err) {
@@ -324,7 +336,7 @@ function CommitDialog({
 				<div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
 					{/* Branch */}
 					<div className="space-y-1.5">
-						<div className="text-sm font-medium">Branch</div>
+						<div className="text-sm font-medium">Branch (optional)</div>
 						{hasBranch ? (
 							<div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-sm">
 								<GitBranchIcon className="size-3.5 text-muted-foreground" />
@@ -334,7 +346,7 @@ function CommitDialog({
 							<Input
 								value={branchName}
 								onChange={(e) => setBranchName(e.target.value)}
-								placeholder="palot/feature-name"
+								placeholder="Leave empty to use current branch"
 								className="text-sm"
 							/>
 						)}
@@ -431,7 +443,7 @@ function CommitDialog({
 					</Button>
 					<Button
 						onClick={handleExecute}
-						disabled={executing || (!hasBranch && !branchName) || !diffStat?.filesChanged}
+						disabled={executing || !diffStat?.filesChanged}
 					>
 						{executing ? (
 							<>
