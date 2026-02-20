@@ -2,7 +2,7 @@
  * Detects installed editors, terminals, and file managers on the system
  * and provides the ability to open a directory in any of them.
  *
- * Currently supports macOS only; other platforms return an empty list.
+ * Supports macOS and Linux.
  */
 
 import { execFileSync, spawn } from "node:child_process"
@@ -52,7 +52,6 @@ interface TargetDef {
  * Check if any of the given paths exist. Also checks ~/Applications/ variants.
  */
 function findPath(paths: string[]): string | null {
-	if (process.platform !== "darwin") return null
 	const home = homedir()
 	for (const p of paths) {
 		const variants = [p, p.replace("/Applications/", `${home}/Applications/`)]
@@ -83,10 +82,14 @@ function whichSync(binary: string): string | null {
  * and looking for the CLI binary inside the .app bundle.
  */
 function detectVSCodeLike(appPath: string, cliBinaryName: string): string | null {
+	// macOS: check .app bundle
 	const appDir = findPath([appPath])
-	if (!appDir) return null
-	const cli = join(appDir, "Contents", "Resources", "app", "bin", cliBinaryName)
-	return existsSync(cli) ? cli : null
+	if (appDir) {
+		const cli = join(appDir, "Contents", "Resources", "app", "bin", cliBinaryName)
+		if (existsSync(cli)) return cli
+	}
+	// Linux: check PATH for the binary
+	return whichSync(cliBinaryName)
 }
 
 /**
@@ -351,6 +354,15 @@ function detectAvailable(): { ids: string[]; map: Map<string, string> } {
 		}
 	}
 
+	// On Linux, if no editors are found, add VS Code as a fallback
+	if (process.platform === "linux" && ids.length === 0) {
+		const vscodeTarget = TARGETS.find((t) => t.id === "vscode")
+		if (vscodeTarget) {
+			ids.push("vscode")
+			map.set("vscode", "code")
+		}
+	}
+
 	detectionCache = { ids, map, ts: Date.now() }
 	return { ids, map }
 }
@@ -454,10 +466,6 @@ function convertIcnsToPng(appBundlePath: string): string | null {
  * Resolves app icons at runtime from installed .app bundles.
  */
 export async function getOpenInTargets(): Promise<OpenInTargetsResult> {
-	if (process.platform !== "darwin") {
-		return { targets: [], availableTargets: [], preferredTarget: null }
-	}
-
 	const { ids } = detectAvailable()
 	const availableSet = new Set(ids)
 
@@ -501,10 +509,6 @@ export async function openInTarget(
 	targetId: string,
 	options?: { persistPreferred?: boolean },
 ): Promise<{ success: boolean }> {
-	if (process.platform !== "darwin") {
-		throw new Error("Open-in targets are only supported on macOS")
-	}
-
 	const target = TARGETS.find((t) => t.id === targetId)
 	if (!target) throw new Error(`Unknown open target: "${targetId}"`)
 
@@ -517,10 +521,10 @@ export async function openInTarget(
 		preferredTargetId = targetId
 	}
 
-	// For terminal and file manager targets, use `open` command
+	// For terminal and file manager targets, use `open` command on macOS
 	const isTerminalOrFinder = ["finder", "terminal", "iterm2", "ghostty", "warp"].includes(targetId)
 
-	if (isTerminalOrFinder) {
+	if (isTerminalOrFinder && process.platform === "darwin") {
 		await spawnAsync("open", target.args(directory))
 	} else {
 		await spawnAsync(binary, target.args(directory))
