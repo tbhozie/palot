@@ -42,7 +42,12 @@ export interface AutomationSchedule {
 }
 
 export interface ExecutionConfig {
+	/** Model to use in "providerID/modelID" format (e.g. "anthropic/claude-opus-4-5"). Defaults to server default. */
 	model?: string
+	/** Agent name to use (e.g. "build", "research"). Defaults to server default agent. */
+	agent?: string
+	/** Model variant name (e.g. "extended" for extended thinking). Defaults to model default. */
+	variant?: string
 	effort: EffortLevel
 	timeout: number
 	retries: number

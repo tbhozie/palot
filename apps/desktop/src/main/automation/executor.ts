@@ -375,6 +375,8 @@ export async function executeRun(
 		useWorktree: config.execution.useWorktree,
 		timeoutSec: config.execution.timeout,
 		model: config.execution.model || "default",
+		agent: config.execution.agent || "default",
+		variant: config.execution.variant || "default",
 	})
 
 	try {
@@ -476,11 +478,15 @@ export async function executeRun(
 
 		// Parse model string (format: "providerID/modelID") if configured
 		const model = config.execution.model ? parseModelRef(config.execution.model) : undefined
+		const agent = config.execution.agent || undefined
+		const variant = config.execution.variant || undefined
 
 		log.info("Sending prompt", {
 			automationId: config.id,
 			sessionId,
 			model: config.execution.model || "default",
+			agent: agent || "default",
+			variant: variant || "default",
 			promptLength: config.prompt.length,
 		})
 		const promptStart = Date.now()
@@ -490,6 +496,8 @@ export async function executeRun(
 				system: systemPrompt,
 				parts: [{ type: "text", text: config.prompt }],
 				model,
+				agent,
+				variant,
 			}),
 			SDK_CALL_TIMEOUT_MS,
 			"session.promptAsync",
