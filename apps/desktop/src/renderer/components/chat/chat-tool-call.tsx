@@ -40,6 +40,7 @@ import {
 } from "lucide-react"
 import type { ReactNode } from "react"
 import { memo, useCallback, useMemo } from "react"
+import { useToolElapsedTime } from "../../hooks/use-elapsed-time"
 import type { BundledLanguage } from "shiki"
 import { getPartFirstSeenAt } from "../../atoms/parts"
 import { viewFileInDiffPanelAtom } from "../../atoms/ui"
@@ -980,6 +981,7 @@ export const ChatToolCall = memo(
 		)
 
 		const duration = getToolDuration(part)
+		const elapsedTime = useToolElapsedTime(part)
 		const status = part.state.status as "running" | "error" | "completed" | "pending"
 
 		// Build trailing element: diff stats + "view diff" button + duration/spinner
@@ -1003,7 +1005,7 @@ export const ChatToolCall = memo(
 				)
 			}
 
-			// Duration or spinner
+			// Duration, elapsed time + spinner, or just spinner
 			if (duration) {
 				parts.push(
 					<span key="duration" className="text-[11px]">
@@ -1012,14 +1014,21 @@ export const ChatToolCall = memo(
 				)
 			} else if (status === "running" || status === "pending") {
 				parts.push(
-					<Loader2Icon key="spinner" className="size-3 animate-spin text-muted-foreground/40" />,
+					<span key="running" className="flex items-center gap-1.5">
+						{elapsedTime && (
+							<span className="text-[11px] tabular-nums text-muted-foreground/50">
+								{elapsedTime}
+							</span>
+						)}
+						<Loader2Icon className="size-3 animate-spin text-muted-foreground/40" />
+					</span>,
 				)
 			}
 
 			if (parts.length === 0) return undefined
 			if (parts.length === 1) return parts[0]
 			return <span className="flex items-center gap-2.5">{parts}</span>
-		}, [diffStats, duration, status])
+		}, [diffStats, duration, elapsedTime, status])
 
 		// Combine trailing element with "View diff" button for edit-category tools
 		const combinedTrailing = useMemo(() => {
