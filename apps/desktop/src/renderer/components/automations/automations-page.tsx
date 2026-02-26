@@ -5,15 +5,19 @@
  * for the split layout and drives the data pipeline via useAutomationData().
  */
 
+import { Alert, AlertAction, AlertDescription } from "@palot/ui/components/alert"
 import {
 	ResizableHandle,
 	ResizablePanel,
 	ResizablePanelGroup,
 } from "@palot/ui/components/resizable"
 import { Outlet } from "@tanstack/react-router"
+import { useAtom } from "jotai"
+import { XIcon } from "lucide-react"
 import { useCallback, useState } from "react"
 import { toast } from "sonner"
 import type { Automation } from "../../../preload/api"
+import { automationsBannerDismissedAtom } from "../../atoms/preferences"
 import { useAutomationData } from "../../hooks/use-automation-data"
 import { deleteAutomation, runAutomationNow, updateAutomation } from "../../services/backend"
 import { CreateAutomationDialog } from "./create-automation-dialog"
@@ -82,8 +86,31 @@ export function AutomationsPage() {
 		if (!open) setEditingAutomation(null)
 	}, [])
 
+	const [bannerDismissed, setBannerDismissed] = useAtom(automationsBannerDismissedAtom)
+
 	return (
 		<div className="flex h-full flex-col">
+			{!bannerDismissed && (
+				<div className="border-b border-border/50 px-4 py-3">
+					<Alert className="border-amber-500/30 bg-amber-500/5 text-amber-200/90 [&>svg]:text-amber-400">
+						<AlertDescription className="text-[12px] text-amber-200/70">
+							<span className="font-medium text-amber-200/90">Automations run unattended</span>
+							{" "}with broad permissions: all tools are allowed (file reads, edits, bash
+							commands) and interactive prompts are auto-denied since no one is watching.
+						</AlertDescription>
+						<AlertAction>
+							<button
+								type="button"
+								onClick={() => setBannerDismissed(true)}
+								className="rounded p-1 text-amber-200/40 transition-colors hover:text-amber-200/80"
+								aria-label="Dismiss"
+							>
+							<XIcon className="size-3.5" aria-hidden="true" />
+							</button>
+						</AlertAction>
+					</Alert>
+				</div>
+			)}
 			<ResizablePanelGroup orientation="horizontal" className="flex-1" id="automations-inbox">
 				{/* Left panel: list */}
 				<ResizablePanel id="automations-list" defaultSize="35%" minSize="25%" maxSize="50%">

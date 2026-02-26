@@ -14,9 +14,9 @@ import { atomWithStorage } from "jotai/utils"
 
 /**
  * Whether the Automations feature is enabled.
- * Disabled by default -- users enable it via the command palette.
+ * Enabled by default -- users can disable it via the command palette.
  */
-export const automationsEnabledAtom = atomWithStorage<boolean>("palot:automationsEnabled", false)
+export const automationsEnabledAtom = atomWithStorage<boolean>("palot:automationsEnabled", true)
 
 /** Write-only toggle for the command palette. */
 export const toggleAutomationsAtom = atom(null, (get, set) => {

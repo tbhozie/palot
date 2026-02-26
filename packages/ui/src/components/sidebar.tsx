@@ -271,7 +271,6 @@ function Sidebar({
 					className={cn(
 						"bg-sidebar flex h-full w-full flex-col",
 						"group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:shadow-sm",
-						embedded && "group-data-[side=left]:border-r group-data-[side=right]:border-l",
 					)}
 				>
 					{children}

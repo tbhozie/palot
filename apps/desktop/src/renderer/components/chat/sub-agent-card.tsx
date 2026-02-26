@@ -15,6 +15,7 @@ import { messagesFamily } from "../../atoms/messages"
 import { partsFamily } from "../../atoms/parts"
 import { appStore } from "../../atoms/store"
 import { getStreamingPartsForSession, streamingVersionFamily } from "../../atoms/streaming"
+import { useToolElapsedTime } from "../../hooks/use-elapsed-time"
 import type { ToolPart, ToolState } from "../../lib/types"
 import { getToolDuration, getToolInfo, getToolSubtitle } from "./chat-tool-call"
 import { getToolCategory, TOOL_CATEGORY_COLORS } from "./tool-card"
@@ -169,6 +170,7 @@ export const SubAgentCard = memo(function SubAgentCard({ part: propPart }: SubAg
 
 	// ── Duration ───────────────────────────────────────────────
 	const duration = getToolDuration(part)
+	const elapsedTime = useToolElapsedTime(part)
 
 	// Access child session data from the store.
 	const childMessages = useAtomValue(messagesFamily(sessionId ?? ""))
@@ -317,10 +319,15 @@ export const SubAgentCard = memo(function SubAgentCard({ part: propPart }: SubAg
 				</button>
 				{/* Right side: status / duration / open button — outside trigger */}
 				<div className="flex shrink-0 items-center gap-2.5">
-					{isRunning && childStatus && (
-						<span className="text-[11px] text-muted-foreground/60">{childStatus}</span>
-					)}
-					{isRunning && <Loader2Icon className="size-3 animate-spin text-muted-foreground/40" />}
+				{isRunning && childStatus && (
+					<span className="text-[11px] text-muted-foreground/60">{childStatus}</span>
+				)}
+				{isRunning && elapsedTime && (
+					<span className="text-[11px] tabular-nums text-muted-foreground/40">
+						{elapsedTime}
+					</span>
+				)}
+				{isRunning && <Loader2Icon className="size-3 animate-spin text-muted-foreground/40" />}
 					{!isRunning && duration && (
 						<span className="text-[11px] text-muted-foreground/40">{duration}</span>
 					)}

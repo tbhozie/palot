@@ -120,6 +120,8 @@ interface AgentDetailProps {
 	onRevertToMessage?: (messageId: string) => Promise<void>
 	/** Fork from a turn boundary (messageId of the next turn's user message, or undefined for full fork) */
 	onForkFromTurn?: (messageId?: string) => Promise<void>
+	/** Delete a specific part from a message (for error recovery) */
+	onDeletePart?: (sessionId: string, messageId: string, partId: string) => Promise<void>
 }
 
 export function AgentDetail({
@@ -149,6 +151,7 @@ export function AgentDetail({
 	isReverted,
 	onRevertToMessage,
 	onForkFromTurn,
+	onDeletePart,
 }: AgentDetailProps) {
 	const navigate = useNavigate()
 	const { projectSlug } = useParams({ strict: false }) as { projectSlug?: string }
@@ -308,6 +311,7 @@ export function AgentDetail({
 					isReverted={isReverted}
 				onRevertToMessage={onRevertToMessage}
 				onForkFromTurn={onForkFromTurn}
+				onDeletePart={onDeletePart}
 				reviewPanelOpen={reviewPanelOpen}
 				/>
 			</div>

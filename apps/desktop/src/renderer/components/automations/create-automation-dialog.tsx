@@ -24,6 +24,7 @@ import {
 } from "@palot/ui/components/dialog"
 import { Input } from "@palot/ui/components/input"
 import { Label } from "@palot/ui/components/label"
+import { Separator } from "@palot/ui/components/separator"
 import { Textarea } from "@palot/ui/components/textarea"
 import { useAtomValue } from "jotai"
 import {
@@ -40,13 +41,21 @@ import type { Automation } from "../../../preload/api"
 import { activeServerConfigAtom } from "../../atoms/connection"
 import { discoveryProjectsAtom } from "../../atoms/discovery"
 import {
+	useModelState,
+	useOpenCodeAgents,
+	useProviders,
+} from "../../hooks/use-opencode-data"
+import {
 	createAutomation,
 	deleteAutomation,
 	pickDirectory,
 	runAutomationNow,
 	updateAutomation,
 } from "../../services/backend"
+import type { ModelRef } from "../../hooks/use-opencode-data"
+import { AgentSelector, ModelSelector, VariantSelector } from "../chat/prompt-toolbar"
 import { SchedulePicker } from "./schedule-picker"
+import { getModelVariants } from "../../hooks/use-opencode-data"
 
 interface CreateAutomationDialogProps {
 	open: boolean
@@ -104,6 +113,33 @@ export function CreateAutomationDialog({
 	const [isSubmitting, setIsSubmitting] = useState(false)
 	const [isTesting, setIsTesting] = useState(false)
 
+	// Model / agent / variant state
+	const [selectedModel, setSelectedModel] = useState<ModelRef | null>(null)
+	const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
+	const [selectedVariant, setSelectedVariant] = useState<string | undefined>(undefined)
+
+	// Use the first workspace (or null) to scope provider/agent fetching.
+	// Providers are server-level and consistent across directories; this is
+	// the same pattern used by the new-chat screen.
+	const directory = workspaces[0] ?? null
+
+	const { data: providers } = useProviders(directory)
+	const { agents } = useOpenCodeAgents(directory)
+	const { recentModels } = useModelState()
+
+	// Compute available variants for the selected model
+	const variants = useMemo(() => {
+		if (!selectedModel || !providers) return []
+		return getModelVariants(selectedModel.providerID, selectedModel.modelID, providers.providers)
+	}, [selectedModel, providers])
+
+	// Reset variant when model changes and the selected variant is no longer valid
+	useEffect(() => {
+		if (selectedVariant && !variants.includes(selectedVariant)) {
+			setSelectedVariant(undefined)
+		}
+	}, [variants, selectedVariant])
+
 	// Pre-fill form when editing
 	useEffect(() => {
 		if (open && editAutomation) {
@@ -111,15 +147,45 @@ export function CreateAutomationDialog({
 			setPrompt(editAutomation.prompt)
 			setWorkspaces([...editAutomation.workspaces])
 			setRrule(editAutomation.schedule.rrule)
+			// Pre-fill model/agent/variant from execution config
+			const exec = editAutomation.execution
+			if (exec.model) {
+				const slashIdx = exec.model.indexOf("/")
+				if (slashIdx > 0) {
+					setSelectedModel({
+						providerID: exec.model.slice(0, slashIdx),
+						modelID: exec.model.slice(slashIdx + 1),
+					})
+				}
+			} else {
+				setSelectedModel(null)
+			}
+			setSelectedAgent(exec.agent ?? null)
+			setSelectedVariant(exec.variant ?? undefined)
 		} else if (open && !editAutomation) {
 			setName("")
 			setPrompt("")
 			setWorkspaces([])
 			setRrule(DEFAULT_RRULE)
+			setSelectedModel(null)
+			setSelectedAgent(null)
+			setSelectedVariant(undefined)
 		}
 	}, [open, editAutomation])
 
 	const canSave = name.trim().length > 0 && prompt.trim().length > 0
+
+	const buildExecutionPatch = useCallback(() => {
+		const modelStr = selectedModel
+			? `${selectedModel.providerID}/${selectedModel.modelID}`
+			: undefined
+		return {
+			effort: "medium" as const,
+			...(modelStr ? { model: modelStr } : {}),
+			...(selectedAgent ? { agent: selectedAgent } : {}),
+			...(selectedVariant ? { variant: selectedVariant } : {}),
+		}
+	}, [selectedModel, selectedAgent, selectedVariant])
 
 	const handleSubmit = useCallback(async () => {
 		if (!canSave || isSubmitting) return
@@ -135,6 +201,7 @@ export function CreateAutomationDialog({
 						timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 					},
 					workspaces,
+					execution: buildExecutionPatch(),
 				})
 			} else {
 				await createAutomation({
@@ -145,7 +212,7 @@ export function CreateAutomationDialog({
 						timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 					},
 					workspaces,
-					execution: { effort: "medium" },
+					execution: buildExecutionPatch(),
 				})
 			}
 			onOpenChange(false)
@@ -166,6 +233,7 @@ export function CreateAutomationDialog({
 		rrule,
 		workspaces,
 		onOpenChange,
+		buildExecutionPatch,
 	])
 
 	const activeServer = useAtomValue(activeServerConfigAtom)
@@ -263,6 +331,9 @@ export function CreateAutomationDialog({
 	}, [editAutomation, onOpenChange])
 
 	const isPaused = editAutomation?.status === "paused"
+
+	// Default agent for the AgentSelector fallback display
+	const defaultAgent = agents[0]?.name
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -417,6 +488,45 @@ export function CreateAutomationDialog({
 
 					{/* Schedule */}
 					<SchedulePicker value={rrule} onChange={setRrule} />
+
+					{/* Model / Agent / Variant */}
+					<div className="space-y-2">
+						<Label>Agent &amp; model</Label>
+						<p className="text-xs text-muted-foreground">
+							Choose which agent mode and model to use. Defaults to your server configuration.{" "}
+							{!directory && "Add a project above to load available models."}
+						</p>
+						<div className="flex flex-wrap items-center gap-1 rounded-md border px-1 py-1">
+							{agents.length > 0 && (
+								<>
+									<AgentSelector
+										agents={agents}
+										selectedAgent={selectedAgent}
+										defaultAgent={defaultAgent}
+										onSelectAgent={setSelectedAgent}
+									/>
+									<Separator orientation="vertical" className="mx-0.5 my-1 self-stretch" />
+								</>
+							)}
+							<ModelSelector
+								providers={providers}
+								effectiveModel={selectedModel}
+								hasOverride={selectedModel !== null}
+								onSelectModel={setSelectedModel}
+								recentModels={recentModels}
+							/>
+							{variants.length > 0 && (
+								<>
+									<Separator orientation="vertical" className="mx-0.5 my-1 self-stretch" />
+									<VariantSelector
+										variants={variants}
+										selectedVariant={selectedVariant}
+										onSelectVariant={setSelectedVariant}
+									/>
+								</>
+							)}
+						</div>
+					</div>
 				</div>
 
 				<DialogFooter className="flex-row justify-between sm:justify-between">

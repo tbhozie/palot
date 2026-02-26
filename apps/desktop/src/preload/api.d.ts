@@ -123,6 +123,10 @@ export interface LocalServerConfig {
 	port?: number
 	/** Whether a password is configured for the local server (stored in safeStorage). */
 	hasPassword?: boolean
+	/** Enable mDNS service discovery so this server is advertised on the local network. */
+	mdns?: boolean
+	/** Custom mDNS domain name (default "opencode.local"). Only used when mdns is enabled. */
+	mdnsDomain?: string
 }
 
 /** Remote server reachable over HTTP(S). */
@@ -313,7 +317,12 @@ export interface AutomationSchedule {
 export type PermissionPreset = "default" | "allow-all" | "read-only"
 
 export interface ExecutionConfig {
+	/** Model to use in "providerID/modelID" format (e.g. "anthropic/claude-opus-4-5"). Defaults to server default. */
 	model?: string
+	/** Agent name to use (e.g. "build", "research"). Defaults to server default agent. */
+	agent?: string
+	/** Model variant name (e.g. "extended" for extended thinking). Defaults to model default. */
+	variant?: string
 	effort: "low" | "medium" | "high"
 	timeout: number
 	retries: number

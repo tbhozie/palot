@@ -93,14 +93,18 @@ export function createTray(windowGetter: () => BrowserWindow | undefined): void 
 		icon = nativeImage.createFromPath(templatePath)
 		icon.setTemplateImage(true)
 	} else if (IS_LINUX) {
-		// Linux: use 22x22 icon (standard tray size), fallback to icon.png if not available
+		// Linux: use 22x22 icon (standard tray size), fallback to icon.png if not available.
+		// Explicitly resize to 22x22 to ensure the GTK pixbuf is in a format the
+		// StatusNotifierItem (SNI) protocol on Wayland can handle — avoids
+		// GDK_IS_PIXBUF assertion failures from malformed pixbuf handoff.
 		const trayIconPath = path.join(resourcesPath, "iconTray.png")
 		if (!fs.existsSync(trayIconPath)) {
 			log.warn(`Tray icon not found at ${trayIconPath} — falling back to icon.png`)
 		}
-		icon = fs.existsSync(trayIconPath)
+		const rawIcon = fs.existsSync(trayIconPath)
 			? nativeImage.createFromPath(trayIconPath)
 			: nativeImage.createFromPath(path.join(resourcesPath, "icon.png"))
+		icon = rawIcon.resize({ width: 22, height: 22 })
 	} else {
 		const iconPath = path.join(resourcesPath, "icon.png")
 		if (!fs.existsSync(iconPath)) {

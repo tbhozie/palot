@@ -8,6 +8,7 @@ import {
 import {
 	Reasoning,
 	ReasoningContent,
+	ReasoningText,
 	ReasoningTrigger,
 } from "@palot/ui/components/ai-elements/reasoning"
 import { Shimmer } from "@palot/ui/components/ai-elements/shimmer"
@@ -25,6 +26,7 @@ import {
 	Loader2Icon,
 	SendIcon,
 	Undo2Icon,
+	XIcon,
 } from "lucide-react"
 import { memo, useCallback, useDeferredValue, useMemo, useRef, useState } from "react"
 import { useDisplayMode } from "../../hooks/use-agents"
@@ -149,46 +151,81 @@ function getFileParts(entry: ChatMessageEntry): FilePart[] {
 // Attachment grid
 // ============================================================
 
-const AttachmentGrid = memo(function AttachmentGrid({ files }: { files: FilePart[] }) {
+const AttachmentGrid = memo(function AttachmentGrid({
+	files,
+	onDelete,
+}: { files: FilePart[]; onDelete?: (file: FilePart) => void }) {
 	if (files.length === 0) return null
 	return (
 		<div className="flex flex-wrap gap-2">
 			{files.map((file) => (
-				<AttachmentThumbnail key={file.id} file={file} />
+				<AttachmentThumbnail key={file.id} file={file} onDelete={onDelete} />
 			))}
 		</div>
 	)
 })
 
-function AttachmentThumbnail({ file }: { file: FilePart }) {
+function AttachmentThumbnail({
+	file,
+	onDelete,
+}: { file: FilePart; onDelete?: (file: FilePart) => void }) {
 	const isImage = file.mime.startsWith("image/")
+	const [deleting, setDeleting] = useState(false)
+
+	const handleDelete = useCallback(
+		async (e: React.MouseEvent) => {
+			e.stopPropagation()
+			if (!onDelete || deleting) return
+			setDeleting(true)
+			try {
+				await onDelete(file)
+			} finally {
+				setDeleting(false)
+			}
+		},
+		[onDelete, file, deleting],
+	)
+
 	return (
 		<Dialog>
-			<DialogTrigger
-				render={
+			<div className="group/thumb relative size-16 shrink-0">
+				{onDelete && (
 					<button
 						type="button"
-						className="group/thumb relative size-16 shrink-0 overflow-hidden rounded-lg border border-border bg-muted transition-colors hover:border-muted-foreground/30"
-					/>
-				}
-			>
-				{isImage ? (
-					<img
-						src={file.url}
-						alt={file.filename ?? "Image attachment"}
-						className="size-full object-cover"
-					/>
-				) : (
-					<div className="flex size-full items-center justify-center">
-						<FileIcon className="size-6 text-muted-foreground" />
-					</div>
+						onClick={handleDelete}
+						disabled={deleting}
+						className="absolute -right-1 -top-1 z-10 flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 shadow-sm transition-opacity hover:bg-destructive/90 group-hover/thumb:opacity-100 disabled:opacity-50"
+						title="Remove attachment"
+					>
+						<XIcon className="size-2.5" />
+					</button>
 				)}
-				{file.filename && (
-					<div className="absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5 text-[9px] leading-tight text-white opacity-0 transition-opacity group-hover/thumb:opacity-100">
-						<span className="line-clamp-1">{file.filename}</span>
-					</div>
-				)}
-			</DialogTrigger>
+				<DialogTrigger
+					render={
+						<button
+							type="button"
+							className="size-full overflow-hidden rounded-lg border border-border bg-muted transition-colors hover:border-muted-foreground/30"
+						/>
+					}
+				>
+					{isImage ? (
+						<img
+							src={file.url}
+							alt={file.filename ?? "Image attachment"}
+							className="size-full object-cover"
+						/>
+					) : (
+						<div className="flex size-full items-center justify-center">
+							<FileIcon className="size-6 text-muted-foreground" />
+						</div>
+					)}
+					{file.filename && (
+						<div className="absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5 text-[9px] leading-tight text-white opacity-0 transition-opacity group-hover/thumb:opacity-100">
+							<span className="line-clamp-1">{file.filename}</span>
+						</div>
+					)}
+				</DialogTrigger>
+			</div>
 			<DialogContent className="max-h-[90vh] max-w-4xl overflow-auto p-0">
 				<DialogTitle className="sr-only">{file.filename ?? "Attachment preview"}</DialogTitle>
 				{isImage ? (
@@ -346,12 +383,15 @@ function areTurnsEqual(a: ChatTurnType, b: ChatTurnType): boolean {
  */
 type StreamItem =
 	| { kind: "text"; id: string; text: string }
-	| { kind: "reasoning"; part: ReasoningPart }
+	| { kind: "reasoning-process"; items: (RenderablePart & { kind: "reasoning" | "tool" })[] }
 	| { kind: "tool-group"; category: ToolCategory; tools: ToolPart[] }
 
 function groupPartsForStream(ordered: RenderablePart[]): StreamItem[] {
 	const items: StreamItem[] = []
 	let currentGroup: { category: ToolCategory; tools: ToolPart[] } | null = null
+	let currentProcessGroup: (RenderablePart & { kind: "reasoning" | "tool" })[] = []
+
+	const hasReasoning = ordered.some((p) => p.kind === "reasoning")
 
 	const flushGroup = () => {
 		if (currentGroup) {
@@ -360,8 +400,17 @@ function groupPartsForStream(ordered: RenderablePart[]): StreamItem[] {
 		}
 	}
 
+	const flushProcessGroup = () => {
+		if (currentProcessGroup.length > 0) {
+			items.push({ kind: "reasoning-process", items: currentProcessGroup })
+			currentProcessGroup = []
+		}
+	}
+
 	for (const part of ordered) {
-		if (part.kind === "tool") {
+		if (hasReasoning && (part.kind === "reasoning" || part.kind === "tool")) {
+			currentProcessGroup.push(part)
+		} else if (!hasReasoning && part.kind === "tool") {
 			const category = getToolCategory(part.part.tool)
 			if (currentGroup && currentGroup.category === category) {
 				currentGroup.tools.push(part.part)
@@ -371,14 +420,14 @@ function groupPartsForStream(ordered: RenderablePart[]): StreamItem[] {
 			}
 		} else {
 			flushGroup()
+			flushProcessGroup()
 			if (part.kind === "text") {
 				items.push({ kind: "text", id: part.id, text: part.text })
-			} else {
-				items.push({ kind: "reasoning", part: part.part })
 			}
 		}
 	}
 	flushGroup()
+	flushProcessGroup()
 	return items
 }
 
@@ -527,6 +576,8 @@ interface ChatTurnProps {
 	onSendNow?: (turn: ChatTurnType) => Promise<void>
 	/** Fork the conversation from this turn boundary */
 	onForkFromTurn?: () => Promise<void>
+	/** Delete a specific part from a message (for error recovery) */
+	onDeletePart?: (sessionId: string, messageId: string, partId: string) => Promise<void>
 }
 
 /**
@@ -552,6 +603,7 @@ export const ChatTurnComponent = memo(
 		onRevertToMessage,
 		onSendNow,
 		onForkFromTurn,
+		onDeletePart,
 	}: ChatTurnProps) {
 		const [stepsExpanded, setStepsExpanded] = useState(false)
 		const [copied, setCopied] = useState(false)
@@ -670,6 +722,22 @@ export const ChatTurnComponent = memo(
 			}
 		}, [onSendNow, sendingNow, turn])
 
+		const handleDeleteFile = useCallback(
+			async (file: FilePart) => {
+				if (!onDeletePart) return
+				await onDeletePart(file.sessionID, file.messageID, file.id)
+			},
+			[onDeletePart],
+		)
+
+		const handleDeleteToolPart = useCallback(
+			async (toolPart: ToolPart) => {
+				if (!onDeletePart) return
+				await onDeletePart(toolPart.sessionID, toolPart.messageID, toolPart.id)
+			},
+			[onDeletePart],
+		)
+
 		return (
 			<div ref={turnRef} className="group/turn space-y-4">
 				{/* User message */}
@@ -681,7 +749,12 @@ export const ChatTurnComponent = memo(
 				) : (
 					<Message from="user">
 						<MessageContent>
-							{userFiles.length > 0 && <AttachmentGrid files={userFiles} />}
+							{userFiles.length > 0 && (
+								<AttachmentGrid
+									files={userFiles}
+									onDelete={onDeletePart ? handleDeleteFile : undefined}
+								/>
+							)}
 							<p className="whitespace-pre-wrap">{userText}</p>
 							{(isQueued || isQueuedLast) && (
 								<span className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground/60">
@@ -730,49 +803,71 @@ export const ChatTurnComponent = memo(
 											</div>
 										)
 									}
-									if (item.kind === "reasoning") {
-										const reasoningText = item.part.text
-											.replace("[REDACTED]", "")
-											.trim()
-										if (!reasoningText) return null
-										const durationSec = item.part.time.end
-											? Math.ceil(
-													(item.part.time.end - item.part.time.start) / 1000,
-												)
+									if (item.kind === "reasoning-process") {
+										const firstReasoning = item.items.find((p) => p.kind === "reasoning") as { kind: "reasoning", part: ReasoningPart } | undefined
+										const lastItem = item.items[item.items.length - 1]
+										
+										const durationSec = firstReasoning?.part.time.end
+											? Math.ceil((firstReasoning.part.time.end - firstReasoning.part.time.start) / 1000)
 											: undefined
-										const isReasoningStreaming = !item.part.time.end && working
+										const isStreaming = working && (!lastItem || (lastItem.kind === "reasoning" && !lastItem.part.time.end))
+
 										return (
 											<Reasoning
-												key={item.part.id}
-												isStreaming={isReasoningStreaming}
+												key={`process-${idx}`}
+												isStreaming={isStreaming}
 												duration={durationSec}
-												defaultOpen={isReasoningStreaming ? undefined : false}
+												defaultOpen={isStreaming ? undefined : false}
 											>
 												<ReasoningTrigger />
-												<ReasoningContent animated={isReasoningStreaming}>
-													{reasoningText}
+												<ReasoningContent animated={isStreaming}>
+													<div className="flex flex-col gap-4">
+														{item.items.map((processItem, i) => {
+															if (processItem.kind === "reasoning") {
+																const text = processItem.part.text.replace("[REDACTED]", "").trim()
+																if (!text) return null
+																return (
+																	<div key={processItem.part.id} className="whitespace-pre-wrap">
+																		<ReasoningText animated={isStreaming && i === item.items.length - 1}>
+																			{text}
+																		</ReasoningText>
+																	</div>
+																)
+															}
+															if (processItem.kind === "tool") {
+																return (
+																	<div key={processItem.part.id} className="border-l-2 border-muted/30 pl-3">
+																		<ChatToolCall part={processItem.part} isActiveTurn={isActiveTurn} />
+																	</div>
+																)
+															}
+															return null
+														})}
+													</div>
 												</ReasoningContent>
 											</Reasoning>
 										)
 									}
-								// tool-group: single tool renders directly, multiple get a collapsible summary
-								if (item.tools.length === 1) {
-									return (
-										<ChatToolCall
-											key={item.tools[0].id}
-											part={item.tools[0]}
-											isActiveTurn={isActiveTurn}
-										/>
-									)
-								}
-								return (
-									<ToolGroupSummary
-										key={`group-${idx}-${item.tools[0].id}`}
-										category={item.category}
-										tools={item.tools}
-										isActiveTurn={isActiveTurn}
-									/>
-								)
+									if (item.kind === "tool-group") {
+										if (item.tools.length === 1) {
+											return (
+												<ChatToolCall
+													key={item.tools[0].id}
+													part={item.tools[0]}
+													isActiveTurn={isActiveTurn}
+												/>
+											)
+										}
+										return (
+											<ToolGroupSummary
+												key={`group-${idx}-${item.tools[0].id}`}
+												category={item.category}
+												tools={item.tools}
+												isActiveTurn={isActiveTurn}
+											/>
+										)
+									}
+									return null
 								})}
 								{/* Live status while the agent is still working */}
 								{working && hasSteps && (
@@ -833,6 +928,8 @@ export const ChatTurnComponent = memo(
 												key={item.part.id}
 												part={item.part}
 												isActiveTurn={isActiveTurn}
+												turnHasError={!!errorText}
+												onDelete={onDeletePart ? handleDeleteToolPart : undefined}
 											/>
 										)
 									}
@@ -852,7 +949,9 @@ export const ChatTurnComponent = memo(
 											>
 												<ReasoningTrigger />
 												<ReasoningContent animated={isReasoningStreaming}>
-													{reasoningText}
+													<ReasoningText animated={isReasoningStreaming}>
+														{reasoningText}
+													</ReasoningText>
 												</ReasoningContent>
 											</Reasoning>
 										)

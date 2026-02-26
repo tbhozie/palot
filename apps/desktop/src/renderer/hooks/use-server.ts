@@ -319,6 +319,21 @@ export function useAgentActions() {
 		}
 	}, [])
 
+	const deletePart = useCallback(
+		async (directory: string, sessionId: string, messageId: string, partId: string) => {
+			const client = getProjectClient(directory)
+			if (!client) throw new Error("Not connected to OpenCode server")
+			log.debug("deletePart", { sessionId, messageId, partId })
+			try {
+				await client.part.delete({ sessionID: sessionId, messageID: messageId, partID: partId })
+			} catch (err) {
+				log.error("deletePart failed", { sessionId, messageId, partId }, err)
+				throw err
+			}
+		},
+		[],
+	)
+
 	const forkSession = useCallback(
 		async (directory: string, sessionId: string, messageId?: string): Promise<Session> => {
 			const client = getProjectClient(directory)
@@ -349,6 +364,7 @@ export function useAgentActions() {
 		createSession,
 		renameSession,
 		deleteSession,
+		deletePart,
 		respondToPermission,
 		replyToQuestion,
 		rejectQuestion,

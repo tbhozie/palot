@@ -415,6 +415,8 @@ interface ChatViewProps {
 	onRevertToMessage?: (messageId: string) => Promise<void>
 	/** Fork from a turn boundary (messageId of the next turn's user message, or undefined for full fork) */
 	onForkFromTurn?: (messageId?: string) => Promise<void>
+	/** Delete a specific part from a message (for error recovery) */
+	onDeletePart?: (sessionId: string, messageId: string, partId: string) => Promise<void>
 	/** Whether the review panel is open (removes max-w constraint) */
 	reviewPanelOpen?: boolean
 }
@@ -453,6 +455,7 @@ export function ChatView({
 	isReverted,
 	onRevertToMessage,
 	onForkFromTurn,
+	onDeletePart,
 	reviewPanelOpen,
 }: ChatViewProps) {
 	const isWorking = agent.status === "running"
@@ -644,6 +647,7 @@ export function ChatView({
 												}
 											: undefined
 									}
+									onDeletePart={onDeletePart}
 								/>
 							))
 							) : setupPhase ? (
@@ -940,6 +944,7 @@ function ChatInputSection({
 			const cmdName = spaceIndex === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIndex)
 			const cmdArgs = spaceIndex === -1 ? "" : trimmed.slice(spaceIndex + 1).trim()
 
+			// Client-only commands that don't go through the server
 			switch (cmdName.toLowerCase()) {
 				case "undo":
 					if (onUndo) await onUndo()
@@ -949,10 +954,18 @@ function ChatInputSection({
 					return true
 				case "compact":
 				case "summarize":
-					if (agent.directory) {
+					if (agent.directory && effectiveModel) {
 						const client = getProjectClient(agent.directory)
 						if (client) {
-							await client.session.summarize({ sessionID: agent.sessionId })
+							try {
+								await client.session.summarize({
+									sessionID: agent.sessionId,
+									providerID: effectiveModel.providerID,
+									modelID: effectiveModel.modelID,
+								})
+							} catch (err) {
+								log.error("session.summarize failed", { sessionId: agent.sessionId }, err)
+							}
 						}
 					}
 					return true
@@ -978,7 +991,7 @@ function ChatInputSection({
 
 			return false
 		},
-		[agent, onUndo, onRedo],
+		[agent, onUndo, onRedo, effectiveModel],
 	)
 
 	const handleSend = useCallback(
@@ -1001,6 +1014,7 @@ function ChatInputSection({
 			if (text.trim().startsWith("/")) {
 				const handled = await handleSlashCommand(text)
 				if (handled) {
+					slashCommandRef.current?.setText("")
 					clearDraft()
 					setMentions([])
 					return
@@ -1157,19 +1171,21 @@ function ChatInputSection({
 		(command: string) => {
 			handleSlashClose()
 			const ctrl = slashCommandRef.current
-			if (ctrl) {
-				ctrl.setText(command)
-				setTimeout(() => {
-					const trimmed = ctrl.getText().trim()
-					if (trimmed.startsWith("/")) {
-						handleSlashCommand(trimmed).then((handled) => {
-							if (handled) {
-								ctrl.setText("")
-								clearDraft()
-							}
-						})
+			// Use the command string directly instead of setText + getText round-trip,
+			// which races with React's asynchronous state batching and sometimes reads
+			// stale text (e.g. "/un" instead of "/undo").
+			if (command.startsWith("/")) {
+				handleSlashCommand(command).then((handled) => {
+					if (handled) {
+						if (ctrl) ctrl.setText("")
+						clearDraft()
+					} else if (ctrl) {
+						// Not a recognized command — leave it in the input for the user
+						ctrl.setText(command)
 					}
-				}, 0)
+				})
+			} else if (ctrl) {
+				ctrl.setText(command)
 			}
 		},
 		[handleSlashClose, handleSlashCommand, clearDraft],
@@ -1229,14 +1245,18 @@ function ChatInputSection({
 
 	const handleTextareaKeyDown = useCallback(
 		(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-			if (slashOpen && slashPopoverRef.current?.handleKeyDown(e)) return
-			if (mentionOpen && mentionPopoverRef.current?.handleKeyDown(e)) return
+			// Always delegate to popovers first — they guard on their own `open` prop
+			// internally, so we don't need to check slashOpen/mentionOpen here.
+			// This avoids stale-closure issues where the parent's boolean lags behind
+			// the popover's actual state (due to async TriggerDetector effects).
+			if (slashPopoverRef.current?.handleKeyDown(e)) return
+			if (mentionPopoverRef.current?.handleKeyDown(e)) return
 
 			if (e.key === "Escape") {
 				handleEscapeAbort()
 			}
 		},
-		[slashOpen, mentionOpen, handleEscapeAbort],
+		[handleEscapeAbort],
 	)
 
 	// Width constraint class: remove max-w when review panel is open

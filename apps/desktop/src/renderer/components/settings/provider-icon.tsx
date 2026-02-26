@@ -1,42 +1,11 @@
 /**
- * Provider logo icons sourced from models.dev (same source as OpenCode).
- * SVGs use `currentColor` so they adapt to the current theme.
+ * Provider logo icons fetched from models.dev at runtime.
+ * Uses `dark:invert` to adapt black-on-transparent SVGs to dark mode.
  *
- * Falls back to a colored letter avatar when no logo is available.
+ * Falls back to a colored letter avatar when the logo fails to load.
  */
 
-// ============================================================
-// SVG loading via Vite glob import
-// ============================================================
-
-// Vite transforms this at compile time into static imports.
-// Type declaration lives in renderer/vite-env.d.ts.
-const svgModules = import.meta.glob("../../assets/provider-icons/*.svg", {
-	query: "?raw",
-	eager: true,
-}) as Record<string, { default: string }>
-
-/** Make SVGs responsive by removing fixed width/height and ensuring they fill their container */
-function makeResponsive(svg: string): string {
-	return svg
-		.replace(/\s+width=["'][^"']*["']/g, "")
-		.replace(/\s+height=["'][^"']*["']/g, "")
-		.replace("<svg", '<svg width="100%" height="100%"')
-}
-
-/** Map of provider ID -> raw SVG string */
-const SVG_MAP = new Map<string, string>()
-
-for (const [path, mod] of Object.entries(svgModules)) {
-	// Extract filename without extension: "../../assets/provider-icons/anthropic.svg" -> "anthropic"
-	const match = path.match(/\/([^/]+)\.svg$/)
-	if (match) {
-		SVG_MAP.set(match[1], makeResponsive(mod.default))
-	}
-}
-
-/** Fallback icon (sparkle) for providers without a logo */
-const FALLBACK_SVG = SVG_MAP.get("synthetic")
+import { useState } from "react"
 
 // ============================================================
 // Color palette for letter avatars (fallback)
@@ -75,6 +44,14 @@ const SIZE_CLASSES = {
 	lg: "size-10",
 } as const
 
+/** Pixel sizes matching the Tailwind size classes, used for img width/height attributes */
+const SIZE_PX = {
+	xs: 16,
+	sm: 28,
+	md: 32,
+	lg: 40,
+} as const
+
 interface ProviderIconProps {
 	/** Provider ID (e.g. "anthropic", "openai") */
 	id: string
@@ -85,22 +62,26 @@ interface ProviderIconProps {
 }
 
 export function ProviderIcon({ id, name, size = "md", className = "" }: ProviderIconProps) {
-	const svg = SVG_MAP.get(id) ?? FALLBACK_SVG
+	const [errored, setErrored] = useState(false)
 
 	const rounding = size === "xs" ? "rounded-sm" : "rounded-md"
+	const px = SIZE_PX[size]
 
-	if (svg) {
+	if (!errored) {
 		return (
-			<div
-				className={`flex shrink-0 items-center justify-center ${rounding} ${SIZE_CLASSES[size]} ${className}`}
+			<img
+				src={`https://models.dev/logos/${id}.svg`}
+				alt={`${name} logo`}
+				width={px}
+				height={px}
+				className={`shrink-0 object-contain dark:invert ${rounding} ${SIZE_CLASSES[size]} ${className}`}
 				aria-hidden="true"
-				// biome-ignore lint/security/noDangerouslySetInnerHtml: trusted SVGs from models.dev
-				dangerouslySetInnerHTML={{ __html: svg }}
+				onError={() => setErrored(true)}
 			/>
 		)
 	}
 
-	// Ultimate fallback: colored letter avatar
+	// Fallback: colored letter avatar
 	const colorClass = AVATAR_COLORS[hashString(id) % AVATAR_COLORS.length]
 	const letter = name.charAt(0).toUpperCase()
 	const textSize = size === "xs" ? "text-[9px]" : size === "sm" ? "text-xs" : "text-sm"

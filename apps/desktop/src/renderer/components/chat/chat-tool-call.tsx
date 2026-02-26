@@ -35,10 +35,12 @@ import {
 	SquareCheckIcon,
 	TerminalIcon,
 	WrenchIcon,
+	XIcon,
 	ZapIcon,
 } from "lucide-react"
 import type { ReactNode } from "react"
 import { memo, useCallback, useMemo } from "react"
+import { useToolElapsedTime } from "../../hooks/use-elapsed-time"
 import type { BundledLanguage } from "shiki"
 import { getPartFirstSeenAt } from "../../atoms/parts"
 import { viewFileInDiffPanelAtom } from "../../atoms/ui"
@@ -386,10 +388,22 @@ export function getToolDuration(part: ToolPart): string | undefined {
 
 /**
  * Bash tool: shows command with syntax highlighting + ANSI-colored terminal output.
+ *
+ * During `running` state the server streams incremental output via
+ * `state.metadata.output` (accumulated string, updated on every stdout/stderr
+ * chunk). We read that field so the terminal updates in real-time, matching the
+ * behaviour of the OpenCode TUI and web UI.
  */
 function BashContent({ part }: { part: ToolPart }) {
 	const command = part.state.input?.command as string | undefined
-	const output = part.state.status === "completed" ? part.state.output : undefined
+
+	// During "running", live output arrives in state.metadata.output.
+	// After completion it moves to state.output.
+	const streamingOutput =
+		part.state.status === "running"
+			? (part.state.metadata?.output as string | undefined)
+			: undefined
+	const output = part.state.status === "completed" ? part.state.output : streamingOutput
 	const error = part.state.status === "error" ? (part.state as { error: string }).error : undefined
 	const isStreaming = part.state.status === "running"
 
@@ -907,6 +921,10 @@ interface ChatToolCallProps {
 	part: ToolPart
 	/** Whether this tool is in the active (last) turn */
 	isActiveTurn?: boolean
+	/** Whether the turn containing this tool has an error (enables delete action) */
+	turnHasError?: boolean
+	/** Delete this tool part (for error recovery) */
+	onDelete?: (part: ToolPart) => void
 	/** Permission data to render inline */
 	permission?: { id: string; permission: string; metadata?: Record<string, unknown> }
 	onApprove?: (permissionId: string, response: "once" | "always") => void
@@ -921,6 +939,19 @@ function areToolPartsEqual(a: ToolPart, b: ToolPart): boolean {
 	if (a === b) return true
 	if (a.id !== b.id) return false
 	if (a.state.status !== b.state.status) return false
+	// During "pending", the server streams partial tool-call arguments into
+	// state.raw. Compare raw length so the subtitle updates as arguments arrive.
+	if (a.state.status === "pending" && b.state.status === "pending") {
+		if (a.state.raw.length !== b.state.raw.length) return false
+	}
+	// During "running", the server streams incremental output via
+	// state.metadata.output. Compare the accumulated output length so
+	// React re-renders the terminal on every new chunk.
+	if (a.state.status === "running" && b.state.status === "running") {
+		const aMeta = a.state.metadata?.output as string | undefined
+		const bMeta = b.state.metadata?.output as string | undefined
+		if ((aMeta?.length ?? 0) !== (bMeta?.length ?? 0)) return false
+	}
 	// Compare output/error lengths for completed/error states
 	if (a.state.status === "completed" && b.state.status === "completed") {
 		if (a.state.output.length !== b.state.output.length) return false
@@ -940,6 +971,8 @@ export const ChatToolCall = memo(
 	function ChatToolCall({
 		part,
 		isActiveTurn = false,
+		turnHasError = false,
+		onDelete,
 		permission,
 		onApprove,
 		onDeny,
@@ -973,6 +1006,7 @@ export const ChatToolCall = memo(
 		)
 
 		const duration = getToolDuration(part)
+		const elapsedTime = useToolElapsedTime(part)
 		const status = part.state.status as "running" | "error" | "completed" | "pending"
 
 		// Build trailing element: diff stats + "view diff" button + duration/spinner
@@ -996,7 +1030,7 @@ export const ChatToolCall = memo(
 				)
 			}
 
-			// Duration or spinner
+			// Duration, elapsed time + spinner, or just spinner
 			if (duration) {
 				parts.push(
 					<span key="duration" className="text-[11px]">
@@ -1005,14 +1039,21 @@ export const ChatToolCall = memo(
 				)
 			} else if (status === "running" || status === "pending") {
 				parts.push(
-					<Loader2Icon key="spinner" className="size-3 animate-spin text-muted-foreground/40" />,
+					<span key="running" className="flex items-center gap-1.5">
+						{elapsedTime && (
+							<span className="text-[11px] tabular-nums text-muted-foreground/50">
+								{elapsedTime}
+							</span>
+						)}
+						<Loader2Icon className="size-3 animate-spin text-muted-foreground/40" />
+					</span>,
 				)
 			}
 
 			if (parts.length === 0) return undefined
 			if (parts.length === 1) return parts[0]
 			return <span className="flex items-center gap-2.5">{parts}</span>
-		}, [diffStats, duration, status])
+		}, [diffStats, duration, elapsedTime, status])
 
 		// Combine trailing element with "View diff" button for edit-category tools
 		const combinedTrailing = useMemo(() => {
@@ -1036,6 +1077,38 @@ export const ChatToolCall = memo(
 				</span>
 			)
 		}, [editFilePath, status, trailingElement, handleViewDiff])
+
+		// When the turn has an error, add a delete button so the user can
+		// surgically remove a problematic tool part and continue the conversation.
+		const handleDelete = useCallback(
+			(e: React.MouseEvent) => {
+				e.stopPropagation()
+				onDelete?.(part)
+			},
+			[onDelete, part],
+		)
+
+		const finalTrailing = useMemo(() => {
+			if (!turnHasError || !onDelete) return combinedTrailing
+			const deleteButton = (
+				<button
+					key="delete-part"
+					type="button"
+					onClick={handleDelete}
+					className="rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-red-500/20 hover:text-red-400"
+					title="Remove this tool call to recover from the error"
+				>
+					<XIcon className="size-3" aria-hidden="true" />
+				</button>
+			)
+			if (!combinedTrailing) return deleteButton
+			return (
+				<span className="flex items-center gap-2">
+					{combinedTrailing}
+					{deleteButton}
+				</span>
+			)
+		}, [turnHasError, onDelete, combinedTrailing, handleDelete])
 
 		// Skip rendering todoread parts without output
 		if (part.tool === "todoread" && part.state.status !== "completed") return null
@@ -1064,7 +1137,7 @@ export const ChatToolCall = memo(
 					icon={<Icon className="size-3.5" />}
 					title={title}
 					subtitle={subtitle}
-					trailing={combinedTrailing}
+					trailing={finalTrailing}
 					category={category}
 					defaultOpen={defaultOpen}
 					forceOpen={
@@ -1109,8 +1182,9 @@ export const ChatToolCall = memo(
 	(prev, next) => {
 		if (!areToolPartsEqual(prev.part, next.part)) return false
 		if (prev.isActiveTurn !== next.isActiveTurn) return false
+		if (prev.turnHasError !== next.turnHasError) return false
 		if (prev.permission !== next.permission) return false
-		// onApprove/onDeny are callback refs - skip reference comparison to avoid
+		// onApprove/onDeny/onDelete are callback refs - skip reference comparison to avoid
 		// re-renders from parent creating new closures
 		return true
 	},
