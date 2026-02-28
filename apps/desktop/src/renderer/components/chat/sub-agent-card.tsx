@@ -8,11 +8,14 @@ import {
 	ChevronRightIcon,
 	ChevronUpIcon,
 	Loader2Icon,
+	MessageCircleQuestionIcon,
+	ShieldAlertIcon,
 	ZapIcon,
 } from "lucide-react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { messagesFamily } from "../../atoms/messages"
 import { partsFamily } from "../../atoms/parts"
+import { sessionFamily } from "../../atoms/sessions"
 import { appStore } from "../../atoms/store"
 import { getStreamingPartsForSession, streamingVersionFamily } from "../../atoms/streaming"
 import { useToolElapsedTime } from "../../hooks/use-elapsed-time"
@@ -128,6 +131,14 @@ export const SubAgentCard = memo(function SubAgentCard({ part: propPart }: SubAg
 	const isRunning = part.state.status === "running" || part.state.status === "pending"
 	const isError = part.state.status === "error"
 	const isCompleted = part.state.status === "completed"
+
+	// Detect pending interactive requests (permissions / questions) on the child session.
+	// This lets the card header show a "waiting" indicator while the user hasn't
+	// yet responded in the parent session's input area.
+	const childSessionEntry = useAtomValue(sessionFamily(sessionId ?? ""))
+	const childHasPendingPermission = (childSessionEntry?.permissions.length ?? 0) > 0
+	const childHasPendingQuestion = (childSessionEntry?.questions.length ?? 0) > 0
+	const childIsWaiting = isRunning && (childHasPendingPermission || childHasPendingQuestion)
 
 	// ── Three-state collapse ───────────────────────────────────
 	// "closed"   → header only
@@ -319,7 +330,20 @@ export const SubAgentCard = memo(function SubAgentCard({ part: propPart }: SubAg
 				</button>
 				{/* Right side: status / duration / open button — outside trigger */}
 				<div className="flex shrink-0 items-center gap-2.5">
-				{isRunning && childStatus && (
+				{/* Waiting indicator: shown when sub-agent has a pending permission or question */}
+				{childIsWaiting && childHasPendingPermission && (
+					<span className="flex items-center gap-1 text-[11px] font-medium text-amber-400">
+						<ShieldAlertIcon className="size-3 shrink-0" aria-hidden="true" />
+						Needs approval
+					</span>
+				)}
+				{childIsWaiting && childHasPendingQuestion && !childHasPendingPermission && (
+					<span className="flex items-center gap-1 text-[11px] font-medium text-amber-400">
+						<MessageCircleQuestionIcon className="size-3 shrink-0" aria-hidden="true" />
+						Asking a question
+					</span>
+				)}
+				{isRunning && !childIsWaiting && childStatus && (
 					<span className="text-[11px] text-muted-foreground/60">{childStatus}</span>
 				)}
 				{isRunning && elapsedTime && (
@@ -327,7 +351,8 @@ export const SubAgentCard = memo(function SubAgentCard({ part: propPart }: SubAg
 						{elapsedTime}
 					</span>
 				)}
-				{isRunning && <Loader2Icon className="size-3 animate-spin text-muted-foreground/40" />}
+				{isRunning && !childIsWaiting && <Loader2Icon className="size-3 animate-spin text-muted-foreground/40" />}
+				{childIsWaiting && <Loader2Icon className="size-3 animate-spin text-amber-400/60" />}
 					{!isRunning && duration && (
 						<span className="text-[11px] text-muted-foreground/40">{duration}</span>
 					)}

@@ -76,8 +76,13 @@ interface AgentDetailProps {
 	/** Callback to load earlier messages */
 	onLoadEarlier?: () => void
 	onStop?: (agent: Agent) => Promise<void>
-	onApprove?: (agent: Agent, permissionId: string, response?: "once" | "always") => Promise<void>
-	onDeny?: (agent: Agent, permissionId: string) => Promise<void>
+	onApprove?: (
+		agent: Agent,
+		permissionSessionId: string,
+		permissionId: string,
+		response?: "once" | "always",
+	) => Promise<void>
+	onDeny?: (agent: Agent, permissionSessionId: string, permissionId: string) => Promise<void>
 	onReplyQuestion?: (agent: Agent, requestId: string, answers: QuestionAnswer[]) => Promise<void>
 	onRejectQuestion?: (agent: Agent, requestId: string) => Promise<void>
 	onSendMessage?: (
