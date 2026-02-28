@@ -618,7 +618,7 @@ export function ChatView({
 				<Conversation key={agent.sessionId} className="h-full">
 					<ScrollOnLoad loading={loading} sessionId={agent.sessionId} />
 					<ScrollBridge scrollRef={scrollRef} />
-					<ConversationContent className="gap-10 px-4 py-6">
+					<ConversationContent className="gap-10 px-0 py-2 sm:px-4 sm:py-6">
 						<div className={cn(contentWidthClass, "space-y-10")}>
 							{/* Load earlier messages button */}
 							{hasEarlierMessages && (
@@ -1291,7 +1291,7 @@ function ChatInputSection({
 
 	return (
 		<>
-			<div className="min-w-0 px-4 pb-4 pt-2">
+			<div className="min-w-0 px-0 pb-0 pt-1 sm:px-4 sm:pb-4 sm:pt-2">
 				<div className={inputWidthClass}>
 					{/* Session task list — collapsible todo progress */}
 					<SessionTaskList sessionId={agent.sessionId} />
