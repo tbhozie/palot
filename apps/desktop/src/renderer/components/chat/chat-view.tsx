@@ -42,6 +42,10 @@ import { messagesFamily, removeMessageAtom } from "../../atoms/messages"
 import { projectModelsAtom, setProjectModelAtom } from "../../atoms/preferences"
 import type { SessionSetupPhase } from "../../atoms/sessions"
 import { sessionFamily } from "../../atoms/sessions"
+import {
+	effectivePermissionFamily,
+	effectiveQuestionFamily,
+} from "../../atoms/derived/session-requests"
 import { appStore } from "../../atoms/store"
 import { useDraftActions, useDraftSnapshot } from "../../hooks/use-draft"
 import type {
@@ -400,8 +404,13 @@ interface ChatViewProps {
 	/** Available OpenCode agents */
 	openCodeAgents?: SdkAgent[]
 	/** Permission handlers */
-	onApprove?: (agent: Agent, permissionId: string, response?: "once" | "always") => Promise<void>
-	onDeny?: (agent: Agent, permissionId: string) => Promise<void>
+	onApprove?: (
+		agent: Agent,
+		permissionSessionId: string,
+		permissionId: string,
+		response?: "once" | "always",
+	) => Promise<void>
+	onDeny?: (agent: Agent, permissionSessionId: string, permissionId: string) => Promise<void>
 	/** Question handlers */
 	onReplyQuestion?: (agent: Agent, requestId: string, answers: QuestionAnswer[]) => Promise<void>
 	onRejectQuestion?: (agent: Agent, requestId: string) => Promise<void>
@@ -494,8 +503,13 @@ export function ChatView({
 	// per render, but wrapping in useCallback avoids creating new inline
 	// closures inside the JSX .map() that would defeat memo() on children.
 	const handleApprovePermission = useCallback(
-		async (a: Agent, permissionId: string, response?: "once" | "always") => {
-			await onApprove?.(a, permissionId, response)
+		async (
+			a: Agent,
+			permissionSessionId: string,
+			permissionId: string,
+			response?: "once" | "always",
+		) => {
+			await onApprove?.(a, permissionSessionId, permissionId, response)
 			// Permission card disappears after approval — scroll to keep content visible.
 			requestAnimationFrame(() => {
 				scrollRef.current?.scrollToBottom("smooth")
@@ -505,8 +519,8 @@ export function ChatView({
 	)
 
 	const handleDenyPermission = useCallback(
-		async (a: Agent, permissionId: string) => {
-			await onDeny?.(a, permissionId)
+		async (a: Agent, permissionSessionId: string, permissionId: string) => {
+			await onDeny?.(a, permissionSessionId, permissionId)
 			requestAnimationFrame(() => {
 				scrollRef.current?.scrollToBottom("smooth")
 			})
@@ -604,7 +618,7 @@ export function ChatView({
 				<Conversation key={agent.sessionId} className="h-full">
 					<ScrollOnLoad loading={loading} sessionId={agent.sessionId} />
 					<ScrollBridge scrollRef={scrollRef} />
-					<ConversationContent className="gap-10 px-4 py-6">
+					<ConversationContent className="gap-10 px-0 py-2 sm:px-4 sm:py-6">
 						<div className={cn(contentWidthClass, "space-y-10")}>
 							{/* Load earlier messages button */}
 							{hasEarlierMessages && (
@@ -732,8 +746,13 @@ interface ChatInputSectionProps {
 	config?: ConfigData | null
 	vcs?: VcsData | null
 	openCodeAgents?: SdkAgent[]
-	onApprove?: (agent: Agent, permissionId: string, response?: "once" | "always") => Promise<void>
-	onDeny?: (agent: Agent, permissionId: string) => Promise<void>
+	onApprove?: (
+		agent: Agent,
+		permissionSessionId: string,
+		permissionId: string,
+		response?: "once" | "always",
+	) => Promise<void>
+	onDeny?: (agent: Agent, permissionSessionId: string, permissionId: string) => Promise<void>
 	onReplyQuestion?: ChatViewProps["onReplyQuestion"]
 	onRejectQuestion?: ChatViewProps["onRejectQuestion"]
 	canRedo?: boolean
@@ -770,6 +789,12 @@ function ChatInputSection({
 	onForkFromTurn,
 }: ChatInputSectionProps) {
 	const [sending, setSending] = useState(false)
+
+	// Tree-scoped interactive requests — bubbles up from sub-agent sessions.
+	// These replace the direct `agent.permissions` / `agent.questions` arrays
+	// so the parent session's UI can respond on behalf of any descendant.
+	const effectivePermission = useAtomValue(effectivePermissionFamily(agent.sessionId))
+	const effectiveQuestion = useAtomValue(effectiveQuestionFamily(agent.sessionId))
 
 	// Diff comments integration
 	const diffComments = useAtomValue(diffCommentsFamily(agent.sessionId))
@@ -1266,14 +1291,14 @@ function ChatInputSection({
 
 	return (
 		<>
-			<div className="min-w-0 px-4 pb-4 pt-2">
+			<div className="min-w-0 px-0 pb-0 pt-1 sm:px-4 sm:pb-4 sm:pt-2">
 				<div className={inputWidthClass}>
 					{/* Session task list — collapsible todo progress */}
 					<SessionTaskList sessionId={agent.sessionId} />
 
 					{/* Revert banner — shown when session is in undo state */}
 					{isReverted && (
-						<div className="mb-2 flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-400">
+						<div className="mb-2 flex items-center gap-2 rounded-lg border border-amber-400/30 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/5 dark:text-amber-400">
 							<Undo2Icon className="size-3.5 shrink-0" />
 							<span className="flex-1">
 								Session reverted — type to continue from here, or redo to restore
@@ -1282,7 +1307,7 @@ function ChatInputSection({
 								<button
 									type="button"
 									onClick={() => onRedo()}
-									className="flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-300 transition-colors hover:bg-amber-500/20"
+									className="flex items-center gap-1 rounded-md bg-amber-200/60 px-2 py-1 text-[11px] font-medium text-amber-900 transition-colors hover:bg-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/20"
 								>
 									<Redo2Icon className="size-3" />
 									Redo
@@ -1291,26 +1316,27 @@ function ChatInputSection({
 						</div>
 					)}
 
-					{/* Pending permissions — always shown above input/questions */}
-					{agent.permissions.length > 0 && (
+					{/* Pending permissions — tree-scoped: shows own OR any sub-agent's permission */}
+					{effectivePermission && (
 						<div className="pb-2">
-							{agent.permissions.map((permission) => (
-								<PermissionItem
-									key={permission.id}
-									agent={agent}
-									permission={permission}
-									onApprove={onApprove}
-									onDeny={onDeny}
-									isConnected={isConnected}
-								/>
-							))}
+							<PermissionItem
+								key={effectivePermission.request.id}
+								agent={agent}
+								permission={effectivePermission.request}
+								onApprove={onApprove}
+								onDeny={onDeny}
+								isConnected={isConnected}
+								isFromSubAgent={effectivePermission.sessionId !== agent.sessionId}
+							/>
 						</div>
 					)}
 
-					{/* When questions are pending, replace the input with a focused question flow */}
-					{agent.questions.length > 0 ? (
+					{/* When questions are pending, replace the input with a focused question flow.
+					    Tree-scoped: shows own OR any sub-agent's question. */}
+					{effectiveQuestion ? (
 						<ChatQuestionFlow
-							questions={agent.questions}
+							questions={[effectiveQuestion.request]}
+							isFromSubAgent={effectiveQuestion.sessionId !== agent.sessionId}
 							onReply={handleReplyQuestion}
 							onReject={handleRejectQuestion}
 							disabled={!isConnected}

@@ -9,6 +9,7 @@ import type {
 } from "../../lib/types"
 import { discoveryAtom } from "../discovery"
 import { sessionFamily, sessionIdsAtom } from "../sessions"
+import { effectivePermissionFamily, effectiveQuestionFamily } from "./session-requests"
 
 // ============================================================
 // Structural equality for Agent objects
@@ -33,6 +34,8 @@ function agentEqual(prev: Agent | null, next: Agent | null): boolean {
 		prev.projectDirectory === next.projectDirectory &&
 		prev.branch === next.branch &&
 		prev.duration === next.duration &&
+		// currentActivity is derived from tree-scoped requests; always compare it
+		// so status changes from descendant sub-agents propagate to the sidebar.
 		prev.currentActivity === next.currentActivity &&
 		prev.parentId === next.parentId &&
 		prev.worktreePath === next.worktreePath &&
@@ -288,8 +291,16 @@ export const agentFamily = atomFamily((sessionId: string) => {
 
 		const slugMap = get(projectSlugMapAtom)
 		const { sandboxToParent } = get(sandboxMappingsAtom)
-		const { session, status, permissions, questions, directory } = entry
-		const agentStatus = deriveAgentStatus(status, permissions.length > 0, questions.length > 0)
+		const { session, status, directory } = entry
+
+		// Use tree-scoped requests to determine blocking status so the parent
+		// session shows "waiting" when any descendant sub-agent has a pending
+		// permission or question — not just its own.
+		const hasTreePermission = get(effectivePermissionFamily(session.id)) !== undefined
+		const hasTreeQuestion = get(effectiveQuestionFamily(session.id)) !== undefined
+		const agentStatus = deriveAgentStatus(status, hasTreePermission, hasTreeQuestion)
+
+		const { permissions, questions } = entry
 		const created = session.time.created
 		const lastActiveAt = session.time.updated ?? session.time.created
 
@@ -298,6 +309,11 @@ export const agentFamily = atomFamily((sessionId: string) => {
 		const parentDir = sandboxToParent.get(directory)
 		const displayDir = parentDir ?? directory
 		const projectInfo = slugMap.get(displayDir)
+
+		// Derive currentActivity from tree-scoped requests first, then own status.
+		// This ensures "waiting for approval" shows even when the permission is from a sub-agent.
+		const effectivePerm = get(effectivePermissionFamily(session.id))
+		const effectiveQ = get(effectiveQuestionFamily(session.id))
 
 		const next: Agent = {
 			id: session.id,
@@ -311,14 +327,13 @@ export const agentFamily = atomFamily((sessionId: string) => {
 			projectDirectory: displayDir,
 			branch: entry.branch ?? "",
 			duration: formatRelativeTime(lastActiveAt),
-			currentActivity:
-				questions.length > 0
-					? `Asking: ${questions[0].questions[0]?.header ?? "Question"}`
-					: permissions.length > 0
-						? `Waiting for approval: ${permissions[0].permission}`
-						: status.type === "busy"
-							? "Working..."
-							: undefined,
+			currentActivity: effectiveQ
+				? `Asking: ${effectiveQ.request.questions[0]?.header ?? "Question"}`
+				: effectivePerm
+					? `Waiting for approval: ${effectivePerm.request.permission}`
+					: status.type === "busy"
+						? "Working..."
+						: undefined,
 			activities: [],
 			permissions,
 			questions,

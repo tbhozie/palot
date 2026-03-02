@@ -5,6 +5,7 @@ import {
 	MessageCircleQuestionIcon,
 	SendIcon,
 	SkipForwardIcon,
+	ZapIcon,
 } from "lucide-react"
 import { memo, useCallback, useEffect, useRef, useState } from "react"
 import type { QuestionAnswer, QuestionInfo, QuestionRequest } from "../../lib/types"
@@ -19,6 +20,8 @@ interface ChatQuestionFlowProps {
 	onReply: (requestId: string, answers: QuestionAnswer[]) => Promise<void>
 	onReject: (requestId: string) => Promise<void>
 	disabled?: boolean
+	/** When true, the question originated from a sub-agent session */
+	isFromSubAgent?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +212,7 @@ export const ChatQuestionFlow = memo(function ChatQuestionFlow({
 	onReply,
 	onReject,
 	disabled = false,
+	isFromSubAgent = false,
 }: ChatQuestionFlowProps) {
 	// Current question request being worked on (first in the queue)
 	const currentRequest = questions[0]
@@ -222,6 +226,7 @@ export const ChatQuestionFlow = memo(function ChatQuestionFlow({
 			onReply={onReply}
 			onReject={onReject}
 			disabled={disabled}
+			isFromSubAgent={isFromSubAgent}
 		/>
 	)
 })
@@ -236,6 +241,7 @@ interface QuestionRequestStepperProps {
 	onReply: (requestId: string, answers: QuestionAnswer[]) => Promise<void>
 	onReject: (requestId: string) => Promise<void>
 	disabled: boolean
+	isFromSubAgent?: boolean
 }
 
 const QuestionRequestStepper = memo(function QuestionRequestStepper({
@@ -244,6 +250,7 @@ const QuestionRequestStepper = memo(function QuestionRequestStepper({
 	onReply,
 	onReject,
 	disabled,
+	isFromSubAgent = false,
 }: QuestionRequestStepperProps) {
 	const questions = request.questions
 	const totalSteps = questions.length
@@ -403,6 +410,13 @@ const QuestionRequestStepper = memo(function QuestionRequestStepper({
 			aria-label="Agent question"
 			className="animate-in fade-in slide-in-from-bottom-2 rounded-xl border border-border bg-card outline-none duration-300"
 		>
+			{/* Sub-agent indicator */}
+			{isFromSubAgent && (
+				<div className="flex items-center gap-1 px-3 pt-2 text-[11px] text-muted-foreground/70">
+					<ZapIcon className="size-3 shrink-0" aria-hidden="true" />
+					<span>Sub-agent asking a question</span>
+				</div>
+			)}
 			{/* Header */}
 			<div className="flex items-center gap-2 px-3 py-2 text-sm">
 				<MessageCircleQuestionIcon

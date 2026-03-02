@@ -197,7 +197,7 @@ export function AppSidebarContent({
 					</div>
 				)}
 
-			{/* New Session */}
+			{/* New Session + Automations */}
 			<SidebarGroup>
 				<SidebarGroupContent>
 					<SidebarMenu>
@@ -211,15 +211,7 @@ export function AppSidebarContent({
 								<span>New Session</span>
 							</SidebarMenuButton>
 						</SidebarMenuItem>
-					</SidebarMenu>
-				</SidebarGroupContent>
-			</SidebarGroup>
-
-			{/* Automations */}
-			{automationsEnabled && isLocalServer && (
-				<SidebarGroup>
-					<SidebarGroupContent>
-						<SidebarMenu>
+						{automationsEnabled && isLocalServer && (
 							<SidebarMenuItem>
 								<SidebarMenuButton
 									tooltip="Automations"
@@ -230,10 +222,10 @@ export function AppSidebarContent({
 									<span>Automations</span>
 								</SidebarMenuButton>
 							</SidebarMenuItem>
-						</SidebarMenu>
-					</SidebarGroupContent>
-				</SidebarGroup>
-			)}
+						)}
+					</SidebarMenu>
+				</SidebarGroupContent>
+			</SidebarGroup>
 
 				{/* Active Now */}
 				{activeSessions.length > 0 && (

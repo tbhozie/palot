@@ -5,20 +5,30 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@palot/ui/components/dropdown-menu"
-import { ChevronDownIcon, Loader2Icon, ShieldCheckIcon } from "lucide-react"
+import { ChevronDownIcon, Loader2Icon, ShieldCheckIcon, ZapIcon } from "lucide-react"
 import { memo, useState } from "react"
 import type { Agent, PermissionRequest } from "../../lib/types"
 
 interface PermissionItemProps {
 	agent: Agent
 	permission: PermissionRequest
-	onApprove?: (agent: Agent, permissionId: string, response?: "once" | "always") => Promise<void>
-	onDeny?: (agent: Agent, permissionId: string) => Promise<void>
+	onApprove?: (
+		agent: Agent,
+		permissionSessionId: string,
+		permissionId: string,
+		response?: "once" | "always",
+	) => Promise<void>
+	onDeny?: (agent: Agent, permissionSessionId: string, permissionId: string) => Promise<void>
 	isConnected?: boolean
+	/** When true, the permission originated from a sub-agent session */
+	isFromSubAgent?: boolean
 }
 
 /**
  * Single permission request card — compact style matching the task list.
+ *
+ * When `isFromSubAgent` is true an indicator is shown to communicate that the
+ * permission was raised by a child sub-agent, not the current session directly.
  */
 export const PermissionItem = memo(function PermissionItem({
 	agent,
@@ -26,6 +36,7 @@ export const PermissionItem = memo(function PermissionItem({
 	onApprove,
 	onDeny,
 	isConnected,
+	isFromSubAgent,
 }: PermissionItemProps) {
 	const [responding, setResponding] = useState(false)
 
@@ -33,7 +44,9 @@ export const PermissionItem = memo(function PermissionItem({
 		if (!onApprove || responding) return
 		setResponding(true)
 		try {
-			await onApprove(agent, permission.id, response)
+			// Pass the permission's own sessionID so sub-agent permissions are
+			// routed to the correct session, not the parent agent's session.
+			await onApprove(agent, permission.sessionID, permission.id, response)
 		} finally {
 			setResponding(false)
 		}
@@ -43,7 +56,7 @@ export const PermissionItem = memo(function PermissionItem({
 		if (!onDeny || responding) return
 		setResponding(true)
 		try {
-			await onDeny(agent, permission.id)
+			await onDeny(agent, permission.sessionID, permission.id)
 		} finally {
 			setResponding(false)
 		}
@@ -55,6 +68,12 @@ export const PermissionItem = memo(function PermissionItem({
 	return (
 		<div className="mb-2 rounded-xl border border-border bg-card">
 			<div className="px-3 py-2">
+				{isFromSubAgent && (
+					<div className="mb-1.5 flex items-center gap-1 text-[11px] text-muted-foreground/70">
+						<ZapIcon className="size-3 shrink-0" aria-hidden="true" />
+						<span>Sub-agent requesting permission</span>
+					</div>
+				)}
 				<div className="flex items-center gap-1.5">
 					<ShieldCheckIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
 					<span className="text-sm text-foreground">{permission.permission}</span>

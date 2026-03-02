@@ -210,28 +210,32 @@ function processGlobalEvent(globalEvent: GlobalSSEEvent): void {
 		case "permission.asked": {
 			const sessionId = props.sessionID as string
 			const permission = (props as { permission?: string }).permission
-			if (!isSubAgent(sessionId)) {
-				pendingCount++
-				updateBadgeCount(pendingCount)
-				showNotification({
-					type: "permission",
-					sessionId,
-					title: "Agent needs permission",
-					body: permission || "Approval required",
-					directory,
-					meta: { permissionId: props.id as string },
-				})
-			}
+			// Always count sub-agent permissions — they block the parent too.
+			// Attribute the notification to the root session so clicking it
+			// navigates to the parent where the user can respond.
+			const rootId = getRootSession(sessionId)
+			const notifySessionId = rootId
+			const rootTitle = sessions.get(rootId)?.title
+			const rootDir = sessions.get(rootId)?.directory ?? directory
+			pendingCount++
+			updateBadgeCount(pendingCount)
+			showNotification({
+				type: "permission",
+				sessionId: notifySessionId,
+				title: isSubAgent(sessionId)
+					? `Sub-agent needs permission${rootTitle ? ` — ${rootTitle}` : ""}`
+					: "Agent needs permission",
+				body: permission || "Approval required",
+				directory: rootDir,
+				meta: { permissionId: props.id as string },
+			})
 			scheduleNotify()
 			break
 		}
 
 		case "permission.replied": {
-			const sessionId = props.sessionID as string
-			if (!isSubAgent(sessionId)) {
-				pendingCount = Math.max(0, pendingCount - 1)
-				updateBadgeCount(pendingCount)
-			}
+			pendingCount = Math.max(0, pendingCount - 1)
+			updateBadgeCount(pendingCount)
 			scheduleNotify()
 			break
 		}
@@ -240,29 +244,30 @@ function processGlobalEvent(globalEvent: GlobalSSEEvent): void {
 			const sessionId = props.sessionID as string
 			const questions = props.questions as Array<{ header?: string }> | undefined
 			const header = questions?.[0]?.header ?? "Question"
-			if (!isSubAgent(sessionId)) {
-				pendingCount++
-				updateBadgeCount(pendingCount)
-				showNotification({
-					type: "question",
-					sessionId,
-					title: "Agent has a question",
-					body: header,
-					directory,
-					meta: { requestId: props.id as string },
-				})
-			}
+			// Same bubbling logic as permission.asked.
+			const rootId = getRootSession(sessionId)
+			const rootTitle = sessions.get(rootId)?.title
+			const rootDir = sessions.get(rootId)?.directory ?? directory
+			pendingCount++
+			updateBadgeCount(pendingCount)
+			showNotification({
+				type: "question",
+				sessionId: rootId,
+				title: isSubAgent(sessionId)
+					? `Sub-agent has a question${rootTitle ? ` — ${rootTitle}` : ""}`
+					: "Agent has a question",
+				body: header,
+				directory: rootDir,
+				meta: { requestId: props.id as string },
+			})
 			scheduleNotify()
 			break
 		}
 
 		case "question.replied":
 		case "question.rejected": {
-			const sessionId = props.sessionID as string
-			if (!isSubAgent(sessionId)) {
-				pendingCount = Math.max(0, pendingCount - 1)
-				updateBadgeCount(pendingCount)
-			}
+			pendingCount = Math.max(0, pendingCount - 1)
+			updateBadgeCount(pendingCount)
 			scheduleNotify()
 			break
 		}
@@ -364,6 +369,24 @@ function scheduleNotify(): void {
 /** Check if a session is a sub-agent (has a parent session). */
 function isSubAgent(sessionId: string): boolean {
 	return !!sessions.get(sessionId)?.parentID
+}
+
+/**
+ * Walk up the parentID chain to find the top-level (root) session for a given
+ * session ID.  Returns the session ID itself when there is no parent.
+ * Guards against cycles with a depth limit.
+ */
+function getRootSession(sessionId: string): string {
+	let id = sessionId
+	const seen = new Set<string>()
+	while (true) {
+		if (seen.has(id)) break // cycle guard
+		seen.add(id)
+		const parentID = sessions.get(id)?.parentID
+		if (!parentID) break
+		id = parentID
+	}
+	return id
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {

@@ -145,15 +145,27 @@ export function SessionView({ sessionId }: SessionViewProps) {
 	)
 
 	const handleApprovePermission = useCallback(
-		async (agent: Agent, permissionId: string, response?: "once" | "always") => {
-			await respondToPermission(agent.directory, agent.sessionId, permissionId, response ?? "once")
+		async (
+			agent: Agent,
+			permissionSessionId: string,
+			permissionId: string,
+			response?: "once" | "always",
+		) => {
+			// Use permissionSessionId (not agent.sessionId) so that permissions from
+			// sub-agent child sessions are correctly routed to the child's session.
+			await respondToPermission(
+				agent.directory,
+				permissionSessionId,
+				permissionId,
+				response ?? "once",
+			)
 		},
 		[respondToPermission],
 	)
 
 	const handleDenyPermission = useCallback(
-		async (agent: Agent, permissionId: string) => {
-			await respondToPermission(agent.directory, agent.sessionId, permissionId, "reject")
+		async (agent: Agent, permissionSessionId: string, permissionId: string) => {
+			await respondToPermission(agent.directory, permissionSessionId, permissionId, "reject")
 		},
 		[respondToPermission],
 	)

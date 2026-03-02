@@ -14,7 +14,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@palot/ui/components/to
 import { Outlet, useNavigate } from "@tanstack/react-router"
 import { useAtomValue } from "jotai"
 import { PanelLeftIcon, PlusIcon } from "lucide-react"
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { activeServerConfigAtom, serverConnectedAtom } from "../atoms/connection"
 import { useAgents, useProjectList, useSetCommandPaletteOpen } from "../hooks/use-agents"
 import { useAgentActions } from "../hooks/use-server"
@@ -39,6 +39,46 @@ const isElectronEnv = typeof window !== "undefined" && "palot" in window
 const WINDOW_CONTROLS_LEFT = isMac && isElectronEnv ? 93 : 8
 /** Total width reserved for traffic lights + window control buttons */
 const WINDOW_CONTROLS_INSET = isMac && isElectronEnv ? 160 : 72
+
+// ============================================================
+// NarrowWindowCollapser
+// ============================================================
+
+/**
+ * Watches the window width and auto-collapses the sidebar when it drops below
+ * COLLAPSE_THRESHOLD px, restoring it when the window grows back above the threshold.
+ * Must be rendered inside a <SidebarProvider>.
+ */
+const COLLAPSE_THRESHOLD = 600
+
+function NarrowWindowCollapser() {
+	const { open, setOpen } = useSidebar()
+	// Track whether the last collapse was triggered by us (vs. the user manually toggling)
+	const collapsedByUsRef = useRef(false)
+
+	useEffect(() => {
+		const check = () => {
+			const narrow = window.innerWidth < COLLAPSE_THRESHOLD
+			if (narrow && open) {
+				collapsedByUsRef.current = true
+				setOpen(false)
+			} else if (!narrow && !open && collapsedByUsRef.current) {
+				// Only re-open if WE collapsed it — don't override the user's manual close
+				collapsedByUsRef.current = false
+				setOpen(true)
+			} else if (!narrow) {
+				// Window grew back — reset the flag regardless so we don't re-open unexpectedly
+				if (!open) collapsedByUsRef.current = false
+			}
+		}
+
+		check()
+		window.addEventListener("resize", check)
+		return () => window.removeEventListener("resize", check)
+	}, [open, setOpen])
+
+	return null
+}
 
 // ============================================================
 // WindowControls
@@ -180,6 +220,7 @@ export function SidebarLayout() {
 			}
 		>
 			<SidebarProvider embedded defaultOpen={true}>
+				<NarrowWindowCollapser />
 				<Sidebar collapsible="offcanvas" variant="sidebar">
 					{/* Sidebar header -- reserves space to match the app bar height so
 					 * sidebar content aligns with the main content area. Also clears

@@ -668,7 +668,7 @@ export function NewChat() {
 	return (
 		<div className="relative flex h-full flex-col">
 			{/* Hero area — vertically centered */}
-			<div className="flex flex-1 flex-col items-center justify-center px-6">
+			<div className="flex flex-1 flex-col items-center justify-center px-0 sm:px-6">
 				<div className="w-full max-w-4xl space-y-8">
 					{/* Wordmark */}
 					<div className="flex justify-center">
@@ -720,7 +720,7 @@ export function NewChat() {
 					</div>
 
 					{/* Suggestion cards — 3 column grid */}
-					<div className="grid grid-cols-3 gap-3">
+					<div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
 						{SUGGESTIONS.map((suggestion) => {
 							const Icon = suggestion.icon
 							return (
@@ -743,7 +743,7 @@ export function NewChat() {
 			</div>
 
 			{/* Bottom-pinned input section */}
-			<div className="shrink-0 px-6 pb-5 pt-3">
+			<div className="shrink-0 px-0 pb-0 pt-0 sm:px-6 sm:pb-5 sm:pt-3">
 				<div className="mx-auto w-full max-w-4xl">
 					{/* Input card */}
 					<PromptInputProvider key={NEW_CHAT_DRAFT_KEY} initialInput={draft}>
